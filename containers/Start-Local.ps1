@@ -24,12 +24,15 @@ if (-not $SkipBuild) {
     if ($NugetSource) { $buildArgs += @("--build-arg", "NUGET_SOURCE=$NugetSource") }
     Invoke-Wslc build --target development -f "$PSScriptRoot\LocationIntelligence.Dockerfile" -t $Image @buildArgs $root
 }
-$networks = & wslc network list
+$networks = & wslc network list --format json
 if ($LASTEXITCODE -ne 0) { throw "Cannot list WSLC networks." }
-if (-not ($networks | Select-String -SimpleMatch $Network)) { Invoke-Wslc network create $Network }
-Invoke-Wslc volume create tt-location-cosmos-data
-Invoke-Wslc volume create tt-location-azure-cli
-Invoke-Wslc volume create tt-location-dataprotection
+$networkNames = @($networks | ForEach-Object { ($_ | ConvertFrom-Json).Name })
+if ($Network -notin $networkNames) { Invoke-Wslc network create $Network }
+$volumes = @(& wslc volume list --quiet)
+if ($LASTEXITCODE -ne 0) { throw "Cannot list WSLC volumes." }
+foreach ($volume in @("tt-location-cosmos-data", "tt-location-azure-cli", "tt-location-dataprotection")) {
+    if ($volume -notin $volumes) { Invoke-Wslc volume create $volume }
+}
 
 # Fail on existing container names rather than deleting another running instance.
 Invoke-Wslc run -d --name $EmulatorName --network $Network --network-alias cosmos `
