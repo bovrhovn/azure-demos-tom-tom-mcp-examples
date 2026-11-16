@@ -2,5 +2,7 @@
   <Folder Name="/Initial/">
     <Project Path="TT.Basic/TT.Basic.csproj" />
   </Folder>
-  <Folder Name="/Scenarios/" />
+  <Folder Name="/Scenarios/">
+    <Project Path="TT.Web.LocationIntelligence/TT.Web.LocationIntelligence.csproj" />
+  </Folder>
 </Solution>
