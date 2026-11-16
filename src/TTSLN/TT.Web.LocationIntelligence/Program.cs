@@ -61,7 +61,7 @@ var insights = builder.Configuration["ApplicationInsights:ConnectionString"];
 if (!string.IsNullOrWhiteSpace(insights))
 {
     builder.Services.AddApplicationInsightsTelemetry(options => options.ConnectionString = insights);
-    builder.Logging.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>(
+    builder.Logging.AddFilter<OpenTelemetry.Logs.OpenTelemetryLoggerProvider>(
         "", LogLevel.Information);
 }
 

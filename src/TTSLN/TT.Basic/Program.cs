@@ -72,7 +72,7 @@ AIAgent agent = new AIProjectClient(new Uri(endpoint),
 // 4. Execute the agent with a question to invoke the tools and get an answer
 //
 var question = AnsiConsole.Ask<string>("Ask your question",
-    "Where is Paris located? Give me coordinates of Eiffel tower.");
+    "What's at the coordinates 52.3676, 4.9041?");
 AnsiConsole.MarkupLine("[green]Question:[/]" + question);
 var answer = await agent.RunAsync(question);
 AnsiConsole.MarkupLine("[green]Answer:[/]" + answer);
