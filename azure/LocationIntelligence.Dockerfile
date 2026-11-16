@@ -18,7 +18,7 @@ COPY --from=client /src/wwwroot/dist /publish/wwwroot/dist
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends curl jq \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists
 WORKDIR /app
 COPY --from=build /publish .
 COPY verify-location-intelligence.sh /app/verify-location-intelligence.sh

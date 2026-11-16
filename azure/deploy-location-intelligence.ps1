@@ -176,7 +176,7 @@ try {
         'Container Registry Repository Reader'
     } else { 'AcrPull' }
     Ensure-Role $registry.id $identity.principalId $pullRole
-    Ensure-Role $foundryProject.id $identity.principalId 'Foundry Project Runtime User'
+    Ensure-Role $foundryProject.id $identity.principalId 'Foundry User'
     Ensure-Role $foundryResource.id $identity.principalId 'Cognitive Services OpenAI User'
     $cosmosScope = "$($cosmosResource.id)/dbs/$DatabaseName"
     $cosmosRoles = @(Invoke-Az @('cosmosdb', 'sql', 'role', 'assignment', 'list',
@@ -419,7 +419,7 @@ try {
     } finally { $http.Dispose(); $handler.Dispose() }
     $null = Invoke-Az @('cosmosdb', 'sql', 'role', 'assignment', 'list', '-g', $cosmosResource.resourceGroup, '-a', $CosmosAccountName)
     Ensure-Role $registry.id $identity.principalId $pullRole
-    Ensure-Role $foundryProject.id $identity.principalId 'Foundry Project Runtime User'
+    Ensure-Role $foundryProject.id $identity.principalId 'Foundry User'
     Write-Host "`nDeployment and backend verification succeeded." -ForegroundColor Green
     Write-Host "Open: $url"
     Write-Host "Direct Entra sign-in: $url/.auth/login/aad"
