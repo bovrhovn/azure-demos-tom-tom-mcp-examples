@@ -33,6 +33,7 @@ param(
     [ValidateRange(1, 730)][int] $AuthSecretDays = 180,
     [ValidateRange(1, 30)][int] $MaxReplicas = 1,
     [ValidateRange(1, 60)][int] $VerificationTimeoutMinutes = 15,
+    [string] $ImageTag,
     [switch] $SkipImageBuild
 )
 
@@ -42,6 +43,14 @@ $repo = Split-Path $PSScriptRoot -Parent
 $project = Join-Path $repo 'src\TTSLN\TT.Web.LocationIntelligence'
 $temporary = Join-Path ([IO.Path]::GetTempPath()) ("tt-deploy-" + [guid]::NewGuid().ToString('N'))
 $step = 0
+$azureExecutable = (Get-Command az -ErrorAction Stop).Source
+$azurePrefix = @()
+$azurePython = Join-Path (Split-Path $azureExecutable -Parent) '..\python.exe'
+if ($IsWindows -and (Test-Path -LiteralPath $azurePython)) {
+    # The Windows CLI launcher isolates Python and ignores PYTHONIOENCODING.
+    $azureExecutable = $azurePython
+    $azurePrefix = @('-I', '-X', 'utf8', '-m', 'azure.cli')
+}
 
 function Write-Step([string] $Message) {
     $script:step++
@@ -50,11 +59,11 @@ function Write-Step([string] $Message) {
 
 function Invoke-Az([string[]] $Arguments, [switch] $Stream) {
     if ($Stream) {
-        & az @Arguments --only-show-errors
+        & $script:azureExecutable @script:azurePrefix @Arguments --only-show-errors
         if ($LASTEXITCODE -ne 0) { throw "Azure CLI failed: $($Arguments[0..1] -join ' ')." }
         return
     }
-    $result = & az @Arguments --only-show-errors --output json
+    $result = & $script:azureExecutable @script:azurePrefix @Arguments --only-show-errors --output json
     if ($LASTEXITCODE -ne 0) { throw "Azure CLI failed: $($Arguments[0..1] -join ' '). See diagnostics above." }
     if ($result) { ($result -join "`n") | ConvertFrom-Json -Depth 100 }
 }
@@ -167,7 +176,7 @@ try {
         'Container Registry Repository Reader'
     } else { 'AcrPull' }
     Ensure-Role $registry.id $identity.principalId $pullRole
-    Ensure-Role $foundryProject.id $identity.principalId 'Azure AI Developer'
+    Ensure-Role $foundryProject.id $identity.principalId 'Foundry Project Runtime User'
     Ensure-Role $foundryResource.id $identity.principalId 'Cognitive Services OpenAI User'
     $cosmosScope = "$($cosmosResource.id)/dbs/$DatabaseName"
     $cosmosRoles = @(Invoke-Az @('cosmosdb', 'sql', 'role', 'assignment', 'list',
@@ -228,8 +237,13 @@ try {
     Write-Step 'Build and push the Linux image using ACR Tasks (no local Docker required)'
     $imageRepository = "$AppName/web"
     if ($SkipImageBuild) {
-        $existingApp = Invoke-Az @('containerapp', 'show', '-g', $ResourceGroup, '-n', $AppName)
-        $image = $existingApp.properties.template.containers[0].image
+        if ($ImageTag) {
+            $null = Invoke-Az @('acr', 'repository', 'show', '-n', $RegistryName, '--image', "${imageRepository}:$ImageTag")
+            $image = "$($registry.loginServer)/${imageRepository}:$ImageTag"
+        } else {
+            $existingApp = Invoke-Az @('containerapp', 'show', '-g', $ResourceGroup, '-n', $AppName)
+            $image = $existingApp.properties.template.containers[0].image
+        }
     } else {
         $context = Join-Path $temporary 'build'
         $null = New-Item -ItemType Directory -Path $context
@@ -242,15 +256,15 @@ try {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-location-intelligence.sh') -Destination $context
         $excluded = "**/node_modules`n**/bin`n**/obj`nwwwroot/dist`n**/.env*`n**/*secrets*`n**/*.pfx`n**/*.pem`n"
         Set-Content -LiteralPath (Join-Path $context '.dockerignore') -Value $excluded -Encoding utf8NoBOM
-        $imageTag = [DateTime]::UtcNow.ToString('yyyyMMddHHmmss')
+        if (!$ImageTag) { $ImageTag = [DateTime]::UtcNow.ToString('yyyyMMddHHmmss') }
         $buildArguments = @('acr', 'build', '-r', $RegistryName, '-g', $registryResource.resourceGroup,
-            '-t', "${imageRepository}:$imageTag", '--platform', 'linux/amd64')
+            '-t', "${imageRepository}:$ImageTag", '--platform', 'linux/amd64')
         if ($registry.roleAssignmentMode -eq 'AbacRepositoryPermissions') {
             $buildArguments += @('--source-acr-auth-id', '[caller]')
         }
         if ($NpmRegistry) { $buildArguments += @('--build-arg', "NPM_CONFIG_REGISTRY=$NpmRegistry") }
         Invoke-Az ($buildArguments + @($context)) -Stream
-        $image = "$($registry.loginServer)/${imageRepository}:$imageTag"
+        $image = "$($registry.loginServer)/${imageRepository}:$ImageTag"
     }
 
     Write-Step 'Create/reuse the single-tenant Entra registration and issue an Easy Auth credential'
@@ -331,11 +345,11 @@ try {
     Write-Step 'Require HTTPS and Entra Easy Auth before enabling public browser ingress'
     $null = Invoke-Az @('containerapp', 'auth', 'microsoft', 'update', '-g', $ResourceGroup, '-n', $AppName,
         '--client-id', $registration.appId, '--client-secret-name', 'entra-client-secret',
-        '--tenant-id', $account.tenantId, '--issuer', "https://login.microsoftonline.com/$($account.tenantId)/v2.0",
-        '--allowed-token-audiences', $registration.appId, "api://$($registration.appId)", '--yes')
+        '--issuer', "https://login.microsoftonline.com/$($account.tenantId)/v2.0",
+        '--allowed-token-audiences', $registration.appId, '--yes')
     $null = Invoke-Az @('containerapp', 'auth', 'update', '-g', $ResourceGroup, '-n', $AppName,
         '--enabled', 'true', '--require-https', 'true', '--unauthenticated-client-action', 'RedirectToLoginPage',
-        '--redirect-provider', 'azureActiveDirectory', '--excluded-paths', '/health', '/health/ready', '--yes')
+        '--redirect-provider', 'azureActiveDirectory', '--excluded-paths', '/health,/health/ready', '--yes')
     $null = Invoke-Az @('containerapp', 'ingress', 'enable', '-g', $ResourceGroup, '-n', $AppName,
         '--type', 'external', '--target-port', '8080', '--transport', 'auto')
 
@@ -359,7 +373,10 @@ try {
         }
     }
     $jobPath = Write-JsonFile 'verify-job.json' $jobDefinition
-    $null = Invoke-Az @('containerapp', 'job', 'create', '-g', $ResourceGroup, '-n', "$AppName-verify", '--yaml', $jobPath)
+    $existingJobs = @(Invoke-Az @('containerapp', 'job', 'list', '-g', $ResourceGroup,
+        '--query', "[?name=='$AppName-verify']"))
+    $jobOperation = if ($existingJobs.Count) { 'update' } else { 'create' }
+    $null = Invoke-Az @('containerapp', 'job', $jobOperation, '-g', $ResourceGroup, '-n', "$AppName-verify", '--yaml', $jobPath)
     $execution = Invoke-Az @('containerapp', 'job', 'start', '-g', $ResourceGroup, '-n', "$AppName-verify")
     $deadline = [DateTime]::UtcNow.AddMinutes($VerificationTimeoutMinutes)
     do {
@@ -381,9 +398,12 @@ try {
     $handler.AllowAutoRedirect = $false
     $http = [Net.Http.HttpClient]::new($handler)
     try {
+        $http.DefaultRequestHeaders.Accept.ParseAdd('text/html')
+        $http.DefaultRequestHeaders.UserAgent.ParseAdd('Mozilla/5.0')
         foreach ($path in @('/', '/api/sessions/', '/hubs/chat/negotiate')) {
             $response = $http.GetAsync("$url$path").GetAwaiter().GetResult()
-            if ([int]$response.StatusCode -ne 302 -or $response.Headers.Location.ToString() -notmatch '/\.auth/login/aad') {
+            if ([int]$response.StatusCode -ne 302 -or $response.Headers.Location.Host -ne 'login.microsoftonline.com' -or
+                $response.Headers.Location.Query -notlike "*client_id=$($registration.appId)*") {
                 throw "Easy Auth did not protect $path with an Entra sign-in redirect."
             }
         }
@@ -392,10 +412,14 @@ try {
             $login.Headers.Location.Query -notlike "*client_id=$($registration.appId)*") {
             throw 'Easy Auth could not initiate sign-in with the configured Entra application.'
         }
+        $http.DefaultRequestHeaders.Accept.Clear()
+        $http.DefaultRequestHeaders.UserAgent.Clear()
+        $apiResponse = $http.GetAsync("$url/api/sessions/").GetAwaiter().GetResult()
+        if ([int]$apiResponse.StatusCode -ne 401) { throw 'Easy Auth did not reject an unauthenticated API request.' }
     } finally { $http.Dispose(); $handler.Dispose() }
     $null = Invoke-Az @('cosmosdb', 'sql', 'role', 'assignment', 'list', '-g', $cosmosResource.resourceGroup, '-a', $CosmosAccountName)
     Ensure-Role $registry.id $identity.principalId $pullRole
-    Ensure-Role $foundryProject.id $identity.principalId 'Azure AI Developer'
+    Ensure-Role $foundryProject.id $identity.principalId 'Foundry Project Runtime User'
     Write-Host "`nDeployment and backend verification succeeded." -ForegroundColor Green
     Write-Host "Open: $url"
     Write-Host "Direct Entra sign-in: $url/.auth/login/aad"
