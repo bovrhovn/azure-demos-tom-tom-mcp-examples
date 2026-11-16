@@ -304,9 +304,14 @@ try {
         @{ name = 'ApplicationInsights__ConnectionString'; secretRef = 'application-insights' },
         @{ name = 'APPLICATIONINSIGHTS_CONNECTION_STRING'; secretRef = 'application-insights' },
         @{ name = 'ReverseProxy__TrustAllProxies'; value = 'true' },
+        @{ name = 'Deployment__ResourceGroup'; value = $ResourceGroup },
+        @{ name = 'Deployment__Location'; value = $Location },
+        @{ name = 'Deployment__RegistryName'; value = $RegistryName },
         @{ name = 'Deployment__Registry'; value = $registry.loginServer },
+        @{ name = 'Deployment__CosmosAccount'; value = $CosmosAccountName },
         @{ name = 'Deployment__ApplicationInsights'; value = $ApplicationInsightsName },
         @{ name = 'Deployment__FoundryAccount'; value = $FoundryAccountName },
+        @{ name = 'Deployment__FoundryProject'; value = $FoundryProjectName },
         @{ name = 'Deployment__AuthClientId'; value = $registration.appId },
         @{ name = 'Deployment__TenantId'; value = $account.tenantId }
     )
