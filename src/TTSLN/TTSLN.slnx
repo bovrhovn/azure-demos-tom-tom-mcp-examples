@@ -5,4 +5,7 @@
   <Folder Name="/Scenarios/">
     <Project Path="TT.Web.LocationIntelligence/TT.Web.LocationIntelligence.csproj" />
   </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="TT.Web.LocationIntelligence.Tests/TT.Web.LocationIntelligence.Tests.csproj" />
+  </Folder>
 </Solution>

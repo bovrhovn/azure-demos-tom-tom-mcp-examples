@@ -1,10 +1,10 @@
-﻿@page
+@page
 @model IndexModel
 @{
-    ViewData["Title"] = "Home page";
+    ViewData["Title"] = "Explore";
 }
-
-<div class="text-center">
-    <h1 class="display-4">Welcome</h1>
-    <p>Learn about <a href="https://learn.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p>
-</div>
+<div id="app"><p>Loading your location intelligence workspace...</p></div>
+<noscript>This workspace requires JavaScript. Enable it to manage conversations.</noscript>
+@section Scripts {
+    <script type="module" src="~/dist/app.js" asp-append-version="true"></script>
+}

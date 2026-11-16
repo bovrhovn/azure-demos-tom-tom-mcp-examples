@@ -1,0 +1,14 @@
+**
+!src/
+!src/TTSLN/
+!src/TTSLN/TT.Web.LocationIntelligence/
+!src/TTSLN/TT.Web.LocationIntelligence/**
+src/**/bin
+src/**/obj
+src/**/node_modules
+src/**/wwwroot/dist
+src/**/test-results
+src/**/playwright-report
+src/**/*.env
+src/**/.env*
+src/**/appsettings.*.local.json

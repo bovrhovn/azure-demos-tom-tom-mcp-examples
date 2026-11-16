@@ -310,6 +310,9 @@ FakesAssemblies/
 # Node.js Tools for Visual Studio
 .ntvs_analysis.dat
 node_modules/
+src/TTSLN/TT.Web.LocationIntelligence/wwwroot/dist/
+playwright-report/
+test-results/
 
 # Visual Studio 6 build log
 *.plg

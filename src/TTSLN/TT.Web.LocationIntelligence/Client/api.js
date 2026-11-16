@@ -1,0 +1,23 @@
+export function createApi(getToken, fetcher = fetch) {
+  return async function api(path, { method = "GET", body, signal } = {}) {
+    const response = await fetcher(path, {
+      method,
+      signal,
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(method !== "GET" ? { "X-CSRF-TOKEN": getToken() } : {})
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {})
+    });
+    if (!response.ok) {
+      const problem = await response.json().catch(() => null);
+      throw new Error(problem?.title ?? (response.status === 401
+        ? "Sign-in required. In development, run az login. In production, sign in through Easy Auth."
+        : response.status === 429 ? "Too many requests. Please wait a moment."
+        : `Request failed (${response.status}).`));
+    }
+    return response.status === 204 ? undefined : response.json();
+  };
+}
