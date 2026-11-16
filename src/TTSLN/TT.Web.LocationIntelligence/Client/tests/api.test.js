@@ -24,7 +24,7 @@ test("Problem Details errors are surfaced and never automatically retried", asyn
   assert.equal(calls, 1);
 });
 
-test("non-JSON authentication failures are explicit", async () => {
+test("non-JSON platform access failures are explicit", async () => {
   const api = createApi(() => "", async () => new Response("", { status: 401 }));
-  await assert.rejects(api("/api/runtime"), /az login/);
+  await assert.rejects(api("/api/runtime"), /Access denied/);
 });

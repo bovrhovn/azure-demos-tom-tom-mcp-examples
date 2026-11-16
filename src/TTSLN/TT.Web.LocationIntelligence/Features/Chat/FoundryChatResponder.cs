@@ -4,6 +4,7 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Client;
+using TT.Web.LocationIntelligence.Options;
 
 namespace TT.Web.LocationIntelligence.Features.Chat;
 

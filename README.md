@@ -39,7 +39,7 @@ completed answer and exits; there is no chat loop or token streaming.
 |---|---|
 | [Documentation index](docs/README.md) | Choose a guide |
 | [Getting started](docs/getting-started.md) | Prerequisites, authentication, setup and first run |
-| [Location Intelligence web app](docs/location-intelligence.md) | Local emulator, Vue chat, configuration, WSLC, Easy Auth and tests |
+| [Location Intelligence web app](docs/location-intelligence.md) | Local emulator, Vue chat, configuration, WSLC, Azure ingress and tests |
 | [Environment variables](docs/environment-variables.md) | Every application variable, value acquisition and optional SDK credentials |
 | [Architecture](docs/architecture.md) | Source map, tool execution and lifecycle |
 | [Troubleshooting](docs/troubleshooting.md) | Configuration, connectivity and console limitations |

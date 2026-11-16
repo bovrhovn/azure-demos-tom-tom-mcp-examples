@@ -14,8 +14,8 @@ export function createApi(getToken, fetcher = fetch) {
     if (!response.ok) {
       const problem = await response.json().catch(() => null);
       throw new Error(problem?.title ?? (response.status === 401
-        ? "Sign-in required. In development, run az login. In production, sign in through Easy Auth."
-        : response.status === 429 ? "Too many requests. Please wait a moment."
+        ? "Access denied. Check the Azure application's access settings."
+        : response.status === 429 ? "The service is busy. Please wait a moment."
         : `Request failed (${response.status}).`));
     }
     return response.status === 204 ? undefined : response.json();

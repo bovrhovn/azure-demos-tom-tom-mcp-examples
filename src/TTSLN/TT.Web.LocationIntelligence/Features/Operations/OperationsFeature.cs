@@ -5,6 +5,7 @@ using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using TT.Web.LocationIntelligence.Features.Chat;
+using TT.Web.LocationIntelligence.Options;
 
 namespace TT.Web.LocationIntelligence.Features.Operations;
 
@@ -29,7 +30,7 @@ public static class OperationsFeature
                     && !string.IsNullOrWhiteSpace(agent.Value.Model) && !string.IsNullOrWhiteSpace(agent.Value.TomTomApiKey),
                 maxMessageLength = chat.Value.MaxMessageLength, csrfToken = tokens.RequestToken
             });
-        }).RequireAuthorization();
+        });
     }
 }
 

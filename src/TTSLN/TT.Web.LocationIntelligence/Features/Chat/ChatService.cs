@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
+using TT.Web.LocationIntelligence.Options;
 
 namespace TT.Web.LocationIntelligence.Features.Chat;
 

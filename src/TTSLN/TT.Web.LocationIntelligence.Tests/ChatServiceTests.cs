@@ -1,10 +1,11 @@
 using FluentAssertions;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
+using OptionsFactory = Microsoft.Extensions.Options.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 using TT.Web.LocationIntelligence.Features.Chat;
+using TT.Web.LocationIntelligence.Options;
 
 namespace TT.Web.LocationIntelligence.Tests;
 
@@ -21,7 +22,7 @@ public sealed class ChatServiceTests
         clients.Setup(client => client.Group("owner")).Returns(notifications.Object);
         var hub = new Mock<IHubContext<ChatHub>>();
         hub.SetupGet(context => context.Clients).Returns(clients.Object);
-        return new(store, responder.Object, hub.Object, Options.Create(options ?? new()), NullLogger<ChatService>.Instance);
+        return new(store, responder.Object, hub.Object, OptionsFactory.Create(options ?? new()), NullLogger<ChatService>.Instance);
     }
 
     private Task<ChatSession> CreateSession() => store.CreateAsync(new() { OwnerId = "owner", Title = "Routes" }, default);

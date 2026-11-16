@@ -53,11 +53,14 @@ token counts. Missing usage is displayed as **not reported**, never estimated.
 The options dialog controls compact spacing and usage display; these preferences
 stay in browser local storage. Credentials are never editable in the browser.
 
-Development uses **AzureCliCredential** for Foundry and the CLI-issued tenant/object
-identity for session ownership. Every browser reaching a development instance
-acts as the signed-in CLI operator. Bind it to loopback and do not expose it as a
-multi-user service. Production ignores development principal headers and requires
-the platform identity described below.
+Foundry calls use **DefaultAzureCredential**, including Azure CLI credentials
+from `az login` during local development. Conversations are grouped by
+an anonymous, HTTP-only browser session cookie, not an authenticated user.
+Clearing that cookie starts a new workspace; previous identity-based partitions
+are not migrated. The app has no in-app authentication, authorization, or rate
+limiting, including on SignalR. Configure access restrictions manually in Azure
+before exposing the demo publicly. Browser session separation is not a user
+authentication boundary.
 
 The development settings contain only the documented, public emulator key, not
 an Azure account secret. The Linux emulator uses a self-signed certificate;
@@ -90,12 +93,14 @@ automatically mapped into the web application's options.
 | `Chat:MaxTurns` | Conversation bound, default/max 40 turns. Start a new conversation when full. |
 | `Chat:ReplyTimeoutSeconds` | Model/tool timeout, default 180, supported range 30-600 seconds. |
 | `Chat:PageSize` | Session listing page size, default 30, maximum 100. |
-| `Chat:MutationsPerMinute` | Per-user create/send request budget, default 20. Notification-driven GET requests do not consume it. |
-| `Identity:TrustEasyAuth` | Must be explicitly enabled outside Development, **only** behind enforced Easy Auth. |
-| `Identity:DevelopmentScope` | CLI identity token scope; defaults to Azure Resource Manager. |
+| `BrowserSession:CookieName` | Anonymous workspace cookie name, default `tt-browser-session`. |
+| `ReverseProxy:ForwardedHeaders` | Defaults to `XForwardedFor, XForwardedProto`, restoring the original client IP and scheme. |
+| `ReverseProxy:TrustAllProxies` | Defaults to `false` (loopback proxies only); container images set it to `true` for Azure ingress. |
 | `ApplicationInsights:ConnectionString` | Optional Application Insights connection string; enables request/dependency telemetry and `ILogger` export. |
 
-Database/identity options are validated at startup. Foundry settings can initially
+Application options are bound in `Configuration\ServiceRegistration.cs`, with
+each options class in its own file under `Options`. Database options are
+validated at startup. Foundry settings can initially
 be empty so you can test the workspace and database without a model: the UI
 displays a setup banner, and sends return an explicit 503 while preserving the
 question and a failed reply. It does not generate demo answers.
@@ -152,7 +157,16 @@ The equivalent build arguments are `NPM_REGISTRY` and `NUGET_SOURCE`, which
 default to the public registries. If a custom registry requires credentials,
 use your build system's secret facilities rather than build arguments.
 
-## Deploy behind Azure Container Apps Easy Auth
+Forwarded headers run before the rest of the request pipeline, so HTTPS ingress
+produces secure browser/CSRF cookies even when the proxy talks HTTP to the app.
+The images enable `ReverseProxy__TrustAllProxies=true` because Azure ingress
+addresses are dynamic. Deploy only behind a trusted ingress that sanitizes
+forwarded headers and prevents direct backend access. Set this variable to
+`false` to retain loopback-only proxy trust; `Start-Local.ps1` passes through
+either reverse-proxy environment setting from your shell. `X-Forwarded-Host` is
+not enabled by default.
+
+## Deploy to Azure Container Apps
 
 1. Provision the Cosmos database and container in advance with `/ownerId` as
    the partition key. Production never creates databases/containers.
@@ -160,26 +174,19 @@ use your build system's secret facilities rather than build arguments.
    **data-plane** access, including metadata, item read/write, and queries
    (for example Cosmos DB Built-in Data Contributor scoped appropriately).
    Grant the Foundry project/model permissions required by your deployment.
-1. Configure Microsoft Entra Easy Auth, **Require authentication**, an appropriate
-   tenant and allowed audiences, and HTTPS-only ingress. Restrict application
-   assignment if access should be limited to selected users.
+1. Configure HTTPS-only ingress and any platform authentication/access policies
+   manually in Azure. The app does not check Easy Auth settings or read platform
+   principal headers.
 1. Set `ASPNETCORE_ENVIRONMENT=Production`, the production `Cosmos__Endpoint`,
-   `Cosmos__Database`, `Cosmos__Container`, `Cosmos__UseEmulator=false`, and
-   `Identity__TrustEasyAuth=true`. Configure the agent settings and optional
+   `Cosmos__Database`, `Cosmos__Container`, and `Cosmos__UseEmulator=false`.
+   Configure the agent settings and optional
    Application Insights connection string through secret references.
 1. Expose target port **8080**, enable WebSockets, and configure liveness on
    `/health` and readiness on `/health/ready`. Allow anonymous health probes at
    the platform level if your probe path traverses Easy Auth.
 
-The application accepts Entra `X-MS-CLIENT-PRINCIPAL` claims only outside
-Development with the explicit trust setting. This header is **not a token
-validator**: trust depends on Container Apps stripping externally supplied
-identity headers and injecting the validated principal. Do not expose a path
-that bypasses that sidecar or set the trust flag on an ordinary public server.
-The owner partition key is derived from the validated tenant/object IDs.
-
 `DefaultAzureCredential` authenticates Cosmos and Foundry service calls,
-independently of the browser's Easy Auth session. No production Cosmos account
+independently of browser access. No production Cosmos account
 key is required. For a user-assigned managed identity, configure its client ID
 using the standard Azure Identity environment settings.
 
@@ -201,21 +208,22 @@ SignalR carries only conversation-change notifications.
 
 | Feature | Location |
 |---|---|
-| Configuration and middleware | `Program.cs` |
-| DTOs, options, persistence, turn orchestration, Foundry/MCP and hub | `Features\Chat` |
-| CLI identity and Easy Auth principal adapter | `Features\Identity` |
+| Middleware pipeline and endpoint mapping | `Program.cs` |
+| Service registration, option binding, proxy settings and telemetry | `Configuration\ServiceRegistration.cs` |
+| Configuration types (one per file) | `Options` |
+| DTOs, anonymous browser sessions, persistence, turn orchestration, Foundry/MCP and hub | `Features\Chat` |
 | Sanitized errors, runtime information and readiness | `Features\Operations` |
 | UI, styles and client tests | `Client` |
 | MSTest unit/API/emulator tests | `..\TT.Web.LocationIntelligence.Tests` |
 
 | Endpoint | Contract |
 |---|---|
-| `GET /api/runtime` | Authenticated safe database/environment/model information and CSRF token. Never returns credentials. |
-| `GET /api/sessions/?continuationToken=...` | Owner-only summaries and Cosmos continuation token; message content is excluded. |
+| `GET /api/runtime` | Anonymous safe database/environment/model information and CSRF token. Never returns credentials. |
+| `GET /api/sessions/?continuationToken=...` | Browser-scoped summaries and Cosmos continuation token; message content is excluded. |
 | `POST /api/sessions/` | JSON `{ "title": "Amsterdam trip" }`; requires `X-CSRF-TOKEN` plus the verification cookie. |
-| `GET /api/sessions/{id}` | Owner-only conversation and saved messages; another owner's ID returns 404. |
+| `GET /api/sessions/{id}` | Browser-scoped conversation and saved messages; another browser's conversation ID returns 404. |
 | `POST /api/sessions/{id}/messages` | JSON `{ "requestId": "<new-guid>", "content": "Your question" }`; requires CSRF verification. |
-| `/hubs/chat` | Authenticated SignalR endpoint; joins the server-derived owner's group. |
+| `/hubs/chat` | Anonymous SignalR endpoint; joins the browser session's notification group. |
 | `GET /health` | Anonymous process liveness, independent of Cosmos. |
 | `GET /health/ready` | Anonymous Cosmos connectivity/readiness; 503 when unavailable. |
 
@@ -266,7 +274,8 @@ It uses `LocationIntelligenceTests`, verifies reads across independent clients,
 owner isolation and stale ETags, and deletes its own test conversation. Without
 the flag it is explicitly reported as inconclusive/skipped. Other tests cover
 turn ordering, duplicate sends, provider failures, concurrent sends, size limits,
-authentication, CSRF, HTTP persistence contracts, usage metadata and health.
+anonymous browser separation, CSRF, HTTP persistence contracts, usage metadata,
+forwarded-header trust, anonymous SignalR notifications, and health.
 The provider in unit/API tests is mocked; those tests do not claim a live
 Foundry/TomTom response.
 
@@ -283,10 +292,10 @@ Invoke-WebRequest http://localhost:8088/health/ready
 
 | Symptom | Action |
 |---|---|
-| 401 in Development | Run `az login` in the same OS/container as the app; do not copy Windows credential caches into Linux. |
+| Model credential failure in Development | Run `az login` in the same OS/container as the app; do not copy Windows credential caches into Linux. Browser access itself needs no sign-in. |
 | Agent setup banner / 503 on send | Configure the web app's `Agent` options; console environment-variable names do not apply. |
 | Readiness 503 | Check emulator startup, HTTPS, endpoint/DNS and volume permissions; in production check Cosmos data-plane RBAC. |
-| Production startup validation fails | Supply a real HTTPS Cosmos endpoint, disable emulator mode, and explicitly configure the Easy Auth trust boundary. |
+| Production startup validation fails | Supply a real HTTPS Cosmos endpoint and disable emulator mode. |
 | Send returns 409 | Another reply or tab owns the turn; reload the conversation. Do not automatically retry with a new request ID. |
 | Browser loses its HTTP response | Reload the session before resubmitting; the turn may already be persisted. |
 | Live indicator disconnects | Click Reconnect. Reconnection reloads persisted state; HTTP responses remain authoritative. |

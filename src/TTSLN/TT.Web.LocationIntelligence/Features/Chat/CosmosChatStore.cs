@@ -2,6 +2,7 @@ using System.Net;
 using Azure.Core;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Options;
+using TT.Web.LocationIntelligence.Options;
 
 namespace TT.Web.LocationIntelligence.Features.Chat;
 

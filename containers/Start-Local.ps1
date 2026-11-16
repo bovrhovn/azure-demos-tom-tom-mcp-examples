@@ -41,7 +41,8 @@ Invoke-Wslc run -d --name $EmulatorName --network $Network --network-alias cosmo
     mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-latest --protocol https --enable-explorer false
 
 $envArgs = @()
-foreach ($name in @("Agent__Endpoint", "Agent__Model", "Agent__TomTomApiKey", "ApplicationInsights__ConnectionString")) {
+foreach ($name in @("Agent__Endpoint", "Agent__Model", "Agent__TomTomApiKey", "ApplicationInsights__ConnectionString",
+    "ReverseProxy__TrustAllProxies", "ReverseProxy__ForwardedHeaders")) {
     if ([Environment]::GetEnvironmentVariable($name)) { $envArgs += @("-e", $name) }
 }
 Invoke-Wslc run -d --name $AppName --network $Network -p "127.0.0.1:${Port}:8080" `
