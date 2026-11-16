@@ -10,6 +10,7 @@ public sealed class ChatOptions
     [Range(1, 40)] public int MaxTurns { get; set; } = 40;
     [Range(30, 600)] public int ReplyTimeoutSeconds { get; set; } = 180;
     [Range(1, 100)] public int PageSize { get; set; } = 30;
+    [Range(1, 1000)] public int MutationsPerMinute { get; set; } = 20;
 }
 
 /// <summary>Configures the Cosmos account and container; keys are emulator-only.</summary>

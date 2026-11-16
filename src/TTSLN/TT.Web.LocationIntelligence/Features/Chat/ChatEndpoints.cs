@@ -20,7 +20,7 @@ public static class ChatEndpoints
 {
     public static void MapChatFeature(this WebApplication app)
     {
-        var group = app.MapGroup("/api/sessions").RequireAuthorization().RequireRateLimiting("chat");
+        var group = app.MapGroup("/api/sessions").RequireAuthorization();
         group.AddEndpointFilter(async (context, next) =>
         {
             if (HttpMethods.IsPost(context.HttpContext.Request.Method))
@@ -51,7 +51,7 @@ public static class ChatEndpoints
             }, ct);
             logger.LogInformation("Created conversation {SessionId}", session.Id);
             return Results.Created($"/api/sessions/{session.Id}", View(session));
-        });
+        }).RequireRateLimiting("chat");
         group.MapGet("/{id:guid}", async (string id, ClaimsPrincipal user, IChatStore store, CancellationToken ct) =>
         {
             var session = await store.GetAsync(Owner(user), Normalize(id), ct);
@@ -59,7 +59,8 @@ public static class ChatEndpoints
         });
         group.MapPost("/{id:guid}/messages", async (string id, SendMessageRequest request,
             ClaimsPrincipal user, ChatService service, CancellationToken ct) =>
-            Results.Ok(View(await service.SendAsync(Owner(user), Normalize(id), request, ct))));
+            Results.Ok(View(await service.SendAsync(Owner(user), Normalize(id), request, ct))))
+            .RequireRateLimiting("chat");
     }
 
     private static string Owner(ClaimsPrincipal user) => user.FindFirstValue(ClaimTypes.NameIdentifier)!;

@@ -125,4 +125,16 @@ public sealed class ApiTests
         (await anonymous.GetAsync("/health")).StatusCode.Should().Be(HttpStatusCode.OK);
         (await anonymous.GetAsync("/health/ready")).StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
     }
+
+    [TestMethod]
+    public async Task NotificationDrivenReadsDoNotConsumeTheMutationRateLimit()
+    {
+        using var factory = new AppFactory();
+        using var client = Client(factory);
+        for (var index = 0; index < 25; index++)
+            (await client.GetAsync("/api/sessions/")).StatusCode.Should().Be(HttpStatusCode.OK);
+        await Runtime(client);
+        (await client.PostAsJsonAsync("/api/sessions/", new { title = "Still writable" }))
+            .StatusCode.Should().Be(HttpStatusCode.Created);
+    }
 }

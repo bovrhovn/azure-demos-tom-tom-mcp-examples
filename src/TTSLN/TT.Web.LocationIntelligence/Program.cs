@@ -18,10 +18,9 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddOptions<CosmosOptions>().BindConfiguration(CosmosOptions.Section)
     .ValidateDataAnnotations()
-    .Validate(options => builder.Environment.IsDevelopment()
-        ? options.UseEmulator && Uri.TryCreate(options.Endpoint, UriKind.Absolute, out _)
-        : !options.UseEmulator && Uri.TryCreate(options.Endpoint, UriKind.Absolute, out var uri)
-            && uri.Scheme == "https" && !uri.IsLoopback,
+    .Validate(options => Uri.TryCreate(options.Endpoint, UriKind.Absolute, out var endpoint)
+        && endpoint.Scheme == "https" && (builder.Environment.IsDevelopment()
+            ? options.UseEmulator : !options.UseEmulator && !endpoint.IsLoopback),
         "Development requires the emulator; non-development requires a production HTTPS Cosmos endpoint.")
     .ValidateOnStart();
 builder.Services.AddOptions<AgentOptions>().BindConfiguration(AgentOptions.Section)
@@ -53,7 +52,7 @@ builder.Services.AddRateLimiter(options =>
             ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
         _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = 20,
+            PermitLimit = context.RequestServices.GetRequiredService<IOptions<ChatOptions>>().Value.MutationsPerMinute,
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0
         }));

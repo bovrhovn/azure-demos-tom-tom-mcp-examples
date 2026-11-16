@@ -90,6 +90,7 @@ automatically mapped into the web application's options.
 | `Chat:MaxTurns` | Conversation bound, default/max 40 turns. Start a new conversation when full. |
 | `Chat:ReplyTimeoutSeconds` | Model/tool timeout, default 180, supported range 30-600 seconds. |
 | `Chat:PageSize` | Session listing page size, default 30, maximum 100. |
+| `Chat:MutationsPerMinute` | Per-user create/send request budget, default 20. Notification-driven GET requests do not consume it. |
 | `Identity:TrustEasyAuth` | Must be explicitly enabled outside Development, **only** behind enforced Easy Auth. |
 | `Identity:DevelopmentScope` | CLI identity token scope; defaults to Azure Resource Manager. |
 | `ApplicationInsights:ConnectionString` | Optional Application Insights connection string; enables request/dependency telemetry and `ILogger` export. |
