@@ -28,3 +28,15 @@ test("non-JSON platform access failures are explicit", async () => {
   const api = createApi(() => "", async () => new Response("", { status: 401 }));
   await assert.rejects(api("/api/runtime"), /Access denied/);
 });
+
+test("PUT and DELETE send CSRF and handle empty deletion responses", async () => {
+  const requests = [];
+  const api = createApi(() => "verification", async (_, request) => {
+    requests.push(request);
+    return request.method === "DELETE" ? new Response(null, { status: 204 }) : Response.json({ title: "Renamed" });
+  });
+  assert.deepEqual(await api("/api/sessions/id", { method: "PUT", body: { title: "Renamed" } }), { title: "Renamed" });
+  assert.equal(await api("/api/sessions/id", { method: "DELETE" }), undefined);
+  assert.deepEqual(requests.map((request) => request.headers["X-CSRF-TOKEN"]), ["verification", "verification"]);
+  assert.equal(requests[1].body, undefined);
+});

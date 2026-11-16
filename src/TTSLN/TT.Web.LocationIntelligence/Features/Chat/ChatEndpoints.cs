@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.SignalR;
 
 namespace TT.Web.LocationIntelligence.Features.Chat;
@@ -23,7 +24,9 @@ public static class ChatEndpoints
         var group = app.MapGroup("/api/sessions");
         group.AddEndpointFilter(async (context, next) =>
         {
-            if (HttpMethods.IsPost(context.HttpContext.Request.Method))
+            if (!HttpMethods.IsGet(context.HttpContext.Request.Method) &&
+                !HttpMethods.IsHead(context.HttpContext.Request.Method) &&
+                !HttpMethods.IsOptions(context.HttpContext.Request.Method))
             {
                 try
                 {
@@ -42,8 +45,8 @@ public static class ChatEndpoints
         group.MapPost("/", async (CreateSessionRequest request, HttpContext context, IChatStore store,
             ILogger<ChatSession> logger, CancellationToken ct) =>
         {
-            if (request.Title?.Length > 120)
-                return Results.Problem(statusCode: 400, title: "Titles must not exceed 120 characters.");
+            if (request.Title?.Length > SessionTitleLimits.MaxLength)
+                return Results.Problem(statusCode: 400, title: $"Titles must not exceed {SessionTitleLimits.MaxLength} characters.");
             var session = await store.CreateAsync(new()
             {
                 OwnerId = BrowserSessionMiddleware.Owner(context),
@@ -57,14 +60,30 @@ public static class ChatEndpoints
             var session = await store.GetAsync(BrowserSessionMiddleware.Owner(context), Normalize(id), ct);
             return session is null ? Results.NotFound() : Results.Ok(View(session));
         });
+        group.MapPut("/{id:guid}", async Task<Ok<SessionResponse>> (string id, UpdateSessionRequest request,
+            HttpContext context, ChatService service, CancellationToken ct) =>
+            TypedResults.Ok(View(await service.RenameAsync(
+                BrowserSessionMiddleware.Owner(context), Normalize(id), request, ct))))
+            .WithName("UpdateSession")
+            .WithSummary("Rename a conversation")
+            .WithDescription("Updates the browser-owned conversation title when no agent reply is in progress.")
+            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409);
+        group.MapDelete("/{id:guid}", async Task<NoContent> (string id, HttpContext context,
+            ChatService service, CancellationToken ct) =>
+        {
+            await service.DeleteAsync(BrowserSessionMiddleware.Owner(context), Normalize(id), ct);
+            return TypedResults.NoContent();
+        })
+            .WithName("DeleteSession")
+            .WithSummary("Delete a conversation")
+            .WithDescription("Permanently deletes the browser-owned conversation and its messages when no agent reply is in progress.")
+            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409);
         group.MapPost("/{id:guid}/messages", async (string id, SendMessageRequest request,
             HttpContext context, ChatService service, CancellationToken ct) =>
             Results.Ok(View(await service.SendAsync(BrowserSessionMiddleware.Owner(context), Normalize(id), request, ct))));
     }
 
     private static string Normalize(string id) => Guid.Parse(id).ToString("N");
-    private static object View(ChatSession session) => new
-    {
-        session.Id, session.Title, session.CreatedAt, session.UpdatedAt, session.BusyUntil, session.Messages
-    };
+    private static SessionResponse View(ChatSession session) => new(
+        session.Id, session.Title, session.CreatedAt, session.UpdatedAt, session.BusyUntil, session.Messages);
 }

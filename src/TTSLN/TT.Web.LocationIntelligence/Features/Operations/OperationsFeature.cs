@@ -28,7 +28,8 @@ public static class OperationsFeature
                 emulator = cosmos.Value.UseEmulator, model = agent.Value.Model,
                 agentConfigured = !string.IsNullOrWhiteSpace(agent.Value.Endpoint)
                     && !string.IsNullOrWhiteSpace(agent.Value.Model) && !string.IsNullOrWhiteSpace(agent.Value.TomTomApiKey),
-                maxMessageLength = chat.Value.MaxMessageLength, csrfToken = tokens.RequestToken
+                maxMessageLength = chat.Value.MaxMessageLength, maxTitleLength = SessionTitleLimits.MaxLength,
+                csrfToken = tokens.RequestToken
             });
         });
     }

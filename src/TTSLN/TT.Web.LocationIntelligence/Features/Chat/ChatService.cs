@@ -8,6 +8,43 @@ namespace TT.Web.LocationIntelligence.Features.Chat;
 public sealed class ChatService(IChatStore store, IChatResponder responder, IHubContext<ChatHub> hub,
     IOptions<ChatOptions> options, ILogger<ChatService> logger)
 {
+    public async Task<ChatSession> RenameAsync(string ownerId, string sessionId, UpdateSessionRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Title) || request.Title.Length > SessionTitleLimits.MaxLength)
+            throw new ChatException(400, $"Supply a title of 1-{SessionTitleLimits.MaxLength} characters.");
+
+        var session = await GetEditableAsync(ownerId, sessionId, cancellationToken);
+        var saved = await store.ReplaceAsync(session with
+        {
+            Title = request.Title.Trim(), UpdatedAt = DateTimeOffset.UtcNow
+        }, cancellationToken);
+        logger.LogInformation("Renamed conversation {SessionId}", sessionId);
+        await NotifyAsync(ownerId, sessionId, cancellationToken);
+        return saved;
+    }
+
+    public async Task DeleteAsync(string ownerId, string sessionId, CancellationToken cancellationToken)
+    {
+        var session = await GetEditableAsync(ownerId, sessionId, cancellationToken);
+        await store.DeleteAsync(session, cancellationToken);
+        logger.LogInformation("Deleted conversation {SessionId}", sessionId);
+        try { await hub.Clients.Group(ownerId).SendAsync("ConversationDeleted", sessionId, cancellationToken); }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            logger.LogWarning(ex, "Realtime deletion notification failed for conversation {SessionId}", sessionId);
+        }
+    }
+
+    private async Task<ChatSession> GetEditableAsync(string ownerId, string sessionId, CancellationToken cancellationToken)
+    {
+        var session = await store.GetAsync(ownerId, sessionId, cancellationToken)
+            ?? throw new ChatException(404, "Conversation not found.");
+        if (session.BusyUntil > DateTimeOffset.UtcNow)
+            throw new ChatException(409, "Wait for the agent reply to finish before changing this conversation.");
+        return session;
+    }
+
     public async Task<ChatSession> SendAsync(string ownerId, string sessionId, SendMessageRequest request,
         CancellationToken cancellationToken)
     {

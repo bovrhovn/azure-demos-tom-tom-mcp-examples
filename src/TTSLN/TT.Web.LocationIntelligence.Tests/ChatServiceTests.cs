@@ -89,11 +89,32 @@ public sealed class ChatServiceTests
         {
             var second = () => service.SendAsync("owner", session.Id, new(Guid.NewGuid(), "Second"), default);
             (await second.Should().ThrowAsync<ChatException>()).Which.StatusCode.Should().Be(409);
+            var rename = () => service.RenameAsync("owner", session.Id, new("Changed"), default);
+            (await rename.Should().ThrowAsync<ChatException>()).Which.StatusCode.Should().Be(409);
+            var delete = () => service.DeleteAsync("owner", session.Id, default);
+            (await delete.Should().ThrowAsync<ChatException>()).Which.StatusCode.Should().Be(409);
         }
         finally { release.SetResult(new("Answer", "model", null, null)); }
         await first;
         var saved = await store.GetAsync("owner", session.Id, default);
         saved!.Messages.Select(message => message.Content).Should().Equal("First", "Answer");
+        saved.Title.Should().Be("Routes");
+    }
+
+    [TestMethod]
+    public async Task ExpiredReplyLeaseAllowsRenameAndDeleteAndPublishesOwnerScopedNotifications()
+    {
+        var session = await CreateSession();
+        session = await store.ReplaceAsync(session with { BusyUntil = DateTimeOffset.UtcNow.AddMinutes(-1) }, default);
+        var service = Service();
+        var renamed = await service.RenameAsync("owner", session.Id, new("New name"), default);
+        renamed.Title.Should().Be("New name");
+        await service.DeleteAsync("owner", session.Id, default);
+        (await store.GetAsync("owner", session.Id, default)).Should().BeNull();
+        notifications.Verify(proxy => proxy.SendCoreAsync("ConversationChanged",
+            It.Is<object?[]>(args => (string)args[0]! == session.Id), It.IsAny<CancellationToken>()), Times.Once);
+        notifications.Verify(proxy => proxy.SendCoreAsync("ConversationDeleted",
+            It.Is<object?[]>(args => (string)args[0]! == session.Id), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [TestMethod]

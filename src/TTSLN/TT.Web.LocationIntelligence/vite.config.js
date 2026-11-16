@@ -3,6 +3,12 @@ import vue from "@vitejs/plugin-vue";
 
 export default defineConfig({
   plugins: [vue()],
+  test: {
+    environment: "jsdom",
+    setupFiles: ["Client/tests/setup.js"],
+    include: ["Client/tests/**/*.spec.js"],
+    clearMocks: true
+  },
   build: {
     outDir: "wwwroot/dist",
     emptyOutDir: true,

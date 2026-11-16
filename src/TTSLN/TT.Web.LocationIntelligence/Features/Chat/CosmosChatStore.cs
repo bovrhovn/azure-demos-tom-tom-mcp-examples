@@ -101,7 +101,29 @@ public sealed class CosmosChatStore(
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.PreconditionFailed)
         {
-            throw new ChatException(409, "This conversation changed. Reload it before sending again.");
+            throw new ChatException(409, "This conversation changed. Reload it and try again.");
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            throw new ChatException(404, "Conversation not found.");
+        }
+    }
+
+    public async Task DeleteAsync(ChatSession session, CancellationToken cancellationToken)
+    {
+        await InitializeAsync(cancellationToken);
+        try
+        {
+            await Container.DeleteItemAsync<ChatSession>(session.Id, new(session.OwnerId),
+                new ItemRequestOptions { IfMatchEtag = session.ETag }, cancellationToken);
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.PreconditionFailed)
+        {
+            throw new ChatException(409, "This conversation changed. Reload it and try again.");
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            throw new ChatException(404, "Conversation not found.");
         }
     }
 

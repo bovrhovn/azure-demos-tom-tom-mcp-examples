@@ -37,9 +37,22 @@ internal sealed class TestStore : IChatStore
         lock (gate)
         {
             var key = (session.OwnerId, session.Id);
+            if (!sessions.ContainsKey(key)) throw new ChatException(404, "Conversation not found.");
             if (sessions[key].ETag != session.ETag) throw new ChatException(409, "ETag conflict");
             sessions[key] = Copy(session with { ETag = Guid.NewGuid().ToString() });
             return Task.FromResult(Copy(sessions[key]));
+        }
+    }
+
+    public Task DeleteAsync(ChatSession session, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            var key = (session.OwnerId, session.Id);
+            if (!sessions.TryGetValue(key, out var saved)) throw new ChatException(404, "Conversation not found.");
+            if (saved.ETag != session.ETag) throw new ChatException(409, "ETag conflict");
+            sessions.Remove(key);
+            return Task.CompletedTask;
         }
     }
 

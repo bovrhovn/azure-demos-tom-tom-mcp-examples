@@ -2,6 +2,8 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
 import { createApi } from "./api.js";
+import SessionActions from "./SessionActions.vue";
+import AgentMessage from "./AgentMessage.vue";
 
 const runtime = ref(null);
 const sessions = ref([]);
@@ -26,6 +28,7 @@ let connection;
 let selectionVersion = 0;
 let clockTimer;
 const refreshVersions = new Map();
+const deletedSessions = new Set();
 const busy = computed(() => sending.value || !!selected.value?.messages.some((message) =>
   message.status === "pending") && new Date(selected.value.busyUntil).getTime() > clock.value);
 const prompts = [
@@ -44,7 +47,8 @@ async function scrollToLatest() {
 async function loadSessions(append = false) {
   const page = await api(`/api/sessions/${append && continuation.value
     ? `?continuationToken=${encodeURIComponent(continuation.value)}` : ""}`);
-  sessions.value = append ? [...sessions.value, ...page.items] : page.items;
+  const items = page.items.filter((item) => !deletedSessions.has(item.id));
+  sessions.value = append ? [...sessions.value, ...items] : items;
   continuation.value = page.continuationToken;
   databaseConnected.value = true;
 }
@@ -53,16 +57,24 @@ async function selectSession(id) {
   error.value = "";
   try {
     const session = await api(`/api/sessions/${id}`);
-    if (version !== selectionVersion) return;
+    if (version !== selectionVersion || deletedSessions.has(id)) return;
     selected.value = session;
     await scrollToLatest();
-  } catch (reason) { error.value = reason.message; }
+  } catch (reason) {
+    if (version === selectionVersion && !deletedSessions.has(id)) error.value = reason.message;
+  }
 }
 async function refreshSession(id) {
+  if (deletedSessions.has(id)) return;
   const version = (refreshVersions.get(id) ?? 0) + 1;
   refreshVersions.set(id, version);
-  const session = await api(`/api/sessions/${id}`);
-  if (refreshVersions.get(id) !== version) return;
+  let session;
+  try { session = await api(`/api/sessions/${id}`); }
+  catch (reason) {
+    if (reason.status === 404) { removeSession(id); return; }
+    throw reason;
+  }
+  if (refreshVersions.get(id) !== version || deletedSessions.has(id)) return;
   const index = sessions.value.findIndex((item) => item.id === id);
   const summary = { id: session.id, title: session.title, updatedAt: session.updatedAt };
   if (index >= 0) sessions.value.splice(index, 1);
@@ -70,6 +82,27 @@ async function refreshSession(id) {
   if (selected.value?.id === id) {
     selected.value = session;
     await scrollToLatest();
+  }
+}
+function updateSession(session) {
+  if (deletedSessions.has(session.id)) return;
+  refreshVersions.set(session.id, (refreshVersions.get(session.id) ?? 0) + 1);
+  const index = sessions.value.findIndex((item) => item.id === session.id);
+  if (index >= 0) sessions.value.splice(index, 1);
+  sessions.value.unshift({ id: session.id, title: session.title, updatedAt: session.updatedAt });
+  if (selected.value?.id === session.id) {
+    ++selectionVersion;
+    selected.value = session;
+  }
+}
+function removeSession(id) {
+  deletedSessions.add(id);
+  refreshVersions.delete(id);
+  sessions.value = sessions.value.filter((session) => session.id !== id);
+  if (selected.value?.id === id) {
+    ++selectionVersion;
+    selected.value = null;
+    draft.value = "";
   }
 }
 async function createSession() {
@@ -128,6 +161,7 @@ async function initialize() {
     connection.on("ConversationChanged", (id) => {
       refreshSession(id).catch((reason) => { error.value = reason.message; });
     });
+    connection.on("ConversationDeleted", removeSession);
     connection.onreconnecting(() => { connected.value = false; });
     connection.onclose(() => { connected.value = false; });
     connection.onreconnected(async () => {
@@ -180,14 +214,18 @@ onUnmounted(() => { clearInterval(clockTimer); connection?.stop(); });
       </button>
       <div class="section-label">CONVERSATIONS <span>{{ sessions.length }}</span></div>
       <nav class="sessions">
-        <button v-for="session in sessions" :key="session.id" class="session"
-                :class="{ active: selected?.id === session.id }"
-                :aria-current="selected?.id === session.id ? 'page' : undefined"
-                @click="selectSession(session.id)">
-          <i class="fa-regular fa-comment" aria-hidden="true"></i>
-          <span><strong>{{ session.title }}</strong><small>{{ formatDate(session.updatedAt) }}</small></span>
-          <i v-if="selected?.id === session.id" class="fa-solid fa-arrow-right active-arrow" aria-hidden="true"></i>
-        </button>
+        <div v-for="session in sessions" :key="session.id" class="session-row"
+             :class="{ active: selected?.id === session.id }">
+          <button class="session"
+                  :aria-current="selected?.id === session.id ? 'page' : undefined"
+                  @click="selectSession(session.id)">
+            <i class="fa-regular fa-comment" aria-hidden="true"></i>
+            <span><strong>{{ session.title }}</strong><small>{{ formatDate(session.updatedAt) }}</small></span>
+          </button>
+          <SessionActions v-if="runtime" :session="session" :api="api" :max-title-length="runtime.maxTitleLength"
+                          :disabled="selected?.id === session.id && busy"
+                          @updated="updateSession" @deleted="removeSession" />
+        </div>
         <p v-if="!sessions.length && !loading" class="sidebar-empty">A new perspective starts with a question.</p>
         <button v-if="continuation" class="text-button" @click="loadSessions(true).catch(reason => error = reason.message)">Load more</button>
       </nav>
@@ -248,6 +286,7 @@ onUnmounted(() => { clearInterval(clockTimer); connection?.stop(); });
                   <template v-if="new Date(selected.busyUntil).getTime() > clock"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i> Exploring your question...</template>
                   <template v-else>This reply was interrupted. You can send your question again.</template>
                 </span>
+                <AgentMessage v-else-if="message.role === 'assistant' && message.status === 'completed'" :content="message.content" />
                 <span v-else>{{ message.content }}</span>
               </div>
               <div v-if="message.role !== 'user' && message.status === 'completed' && showUsage" class="usage">
@@ -292,7 +331,7 @@ onUnmounted(() => { clearInterval(clockTimer); connection?.stop(); });
         <div class="dialog-heading"><h2 id="new-title">A new exploration</h2>
           <button type="button" class="icon-button" aria-label="Close dialog" @click="newDialog.close()"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div>
         <label for="session-title">Conversation name</label>
-        <input id="session-title" v-model="sessionTitle" autofocus maxlength="120" placeholder="e.g. A weekend in Amsterdam">
+        <input id="session-title" v-model="sessionTitle" autofocus :maxlength="runtime?.maxTitleLength" placeholder="e.g. A weekend in Amsterdam">
         <p>Messages and model usage are saved to your private Cosmos DB partition.</p>
         <button class="primary-button" type="submit">Start exploring <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
       </form>

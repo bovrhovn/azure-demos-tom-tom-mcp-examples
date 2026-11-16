@@ -1,8 +1,13 @@
 using FluentAssertions;
+using System.Net;
+using Microsoft.Azure.Cosmos;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
+using OptionsFactory = Microsoft.Extensions.Options.Options;
 using TT.Web.LocationIntelligence.Features.Chat;
 using TT.Web.LocationIntelligence.Options;
 
@@ -11,6 +16,32 @@ namespace TT.Web.LocationIntelligence.Tests;
 [TestClass]
 public sealed class CosmosTests
 {
+    [TestMethod]
+    [DataRow(HttpStatusCode.NoContent, 0)]
+    [DataRow(HttpStatusCode.PreconditionFailed, 409)]
+    [DataRow(HttpStatusCode.NotFound, 404)]
+    public async Task DeleteIsPartitionScopedConditionalAndMapsConcurrentChanges(HttpStatusCode status, int expectedError)
+    {
+        var session = new ChatSession { OwnerId = "owner", Title = "Routes", ETag = "current-version" };
+        var container = new Mock<Container>();
+        var deletion = container.Setup(value => value.DeleteItemAsync<ChatSession>(
+            session.Id, new PartitionKey(session.OwnerId),
+            It.Is<ItemRequestOptions>(request => request.IfMatchEtag == session.ETag),
+            It.IsAny<CancellationToken>()));
+        if (expectedError == 0) deletion.ReturnsAsync(Mock.Of<ItemResponse<ChatSession>>());
+        else deletion.ThrowsAsync(new CosmosException("Concurrent change", status, 0, "test", 0));
+        var client = new Mock<CosmosClient>();
+        client.Setup(value => value.GetContainer("database", "sessions")).Returns(container.Object);
+        var store = new CosmosChatStore(client.Object,
+            OptionsFactory.Create(new CosmosOptions { Database = "database", Container = "sessions" }),
+            OptionsFactory.Create(new ChatOptions()), NullLogger<CosmosChatStore>.Instance);
+
+        var delete = () => store.DeleteAsync(session, default);
+        if (expectedError == 0) await delete();
+        else (await delete.Should().ThrowAsync<ChatException>()).Which.StatusCode.Should().Be(expectedError);
+        container.VerifyAll();
+    }
+
     [TestMethod]
     [TestCategory("Cosmos")]
     public async Task EmulatorPersistsAcrossClientsEnforcesOwnerPartitionAndRejectsStaleEtag()

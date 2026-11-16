@@ -30,6 +30,18 @@ public sealed record SessionPage(IReadOnlyList<SessionSummary> Items, string? Co
 /// <summary>Input for a new conversation.</summary>
 public sealed record CreateSessionRequest(string? Title);
 
+/// <summary>Input for renaming an existing conversation.</summary>
+public sealed record UpdateSessionRequest(string? Title);
+
+/// <summary>Public conversation representation without ownership or storage metadata.</summary>
+public sealed record SessionResponse(string Id, string Title, DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt, DateTimeOffset? BusyUntil, IReadOnlyList<ChatMessage> Messages);
+
+public static class SessionTitleLimits
+{
+    public const int MaxLength = 120;
+}
+
 /// <summary>A client-generated ID makes turn submissions idempotent.</summary>
 public sealed record SendMessageRequest(Guid RequestId, string Content);
 
@@ -43,6 +55,7 @@ public interface IChatStore
     Task<ChatSession?> GetAsync(string ownerId, string id, CancellationToken cancellationToken);
     Task<ChatSession> CreateAsync(ChatSession session, CancellationToken cancellationToken);
     Task<ChatSession> ReplaceAsync(ChatSession session, CancellationToken cancellationToken);
+    Task DeleteAsync(ChatSession session, CancellationToken cancellationToken);
     Task CheckHealthAsync(CancellationToken cancellationToken);
 }
 

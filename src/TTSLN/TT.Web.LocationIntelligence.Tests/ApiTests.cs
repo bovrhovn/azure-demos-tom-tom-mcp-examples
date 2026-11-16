@@ -82,6 +82,94 @@ public sealed class ApiTests
     }
 
     [TestMethod]
+    public async Task RenamePreservesHistoryAndDeleteRemovesConversationAndMessages()
+    {
+        using var factory = new AppFactory();
+        using var client = factory.CreateClient();
+        await Runtime(client);
+        var created = await client.PostAsJsonAsync("/api/sessions/", new { title = "Original" });
+        var original = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var id = original.GetProperty("id").GetString()!;
+        await client.PostAsJsonAsync($"/api/sessions/{id}/messages",
+            new { requestId = Guid.NewGuid(), content = "Where is Amsterdam?" });
+        var before = await client.GetFromJsonAsync<JsonElement>($"/api/sessions/{id}");
+
+        var renamed = await client.PutAsJsonAsync($"/api/sessions/{Guid.Parse(id):D}", new { title = "  Weekend routes  " });
+        renamed.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updated = await renamed.Content.ReadFromJsonAsync<JsonElement>();
+        updated.GetProperty("title").GetString().Should().Be("Weekend routes");
+        updated.TryGetProperty("ownerId", out _).Should().BeFalse();
+        updated.TryGetProperty("eTag", out _).Should().BeFalse();
+        updated.GetProperty("messages").ToString().Should().Be(before.GetProperty("messages").ToString());
+        updated.GetProperty("createdAt").GetDateTimeOffset().Should().Be(before.GetProperty("createdAt").GetDateTimeOffset());
+        var persisted = await client.GetFromJsonAsync<JsonElement>($"/api/sessions/{id}");
+        persisted.GetProperty("title").GetString().Should().Be("Weekend routes");
+        var page = await client.GetFromJsonAsync<JsonElement>("/api/sessions/");
+        page.GetProperty("items")[0].GetProperty("title").GetString().Should().Be("Weekend routes");
+
+        (await client.DeleteAsync($"/api/sessions/{Guid.Parse(id):D}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await client.GetAsync($"/api/sessions/{id}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        page = await client.GetFromJsonAsync<JsonElement>("/api/sessions/");
+        page.GetProperty("items").GetArrayLength().Should().Be(0);
+        (await client.PostAsJsonAsync($"/api/sessions/{id}/messages",
+            new { requestId = Guid.NewGuid(), content = "Gone?" })).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [TestMethod]
+    [DataRow(null)]
+    [DataRow("")]
+    [DataRow("   ")]
+    [DataRow("over-limit")]
+    public async Task InvalidRenameDoesNotChangeStoredConversation(string? title)
+    {
+        using var factory = new AppFactory();
+        using var client = factory.CreateClient();
+        var runtime = await Runtime(client);
+        var created = await client.PostAsJsonAsync("/api/sessions/", new { title = "Keep me" });
+        var session = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var id = session.GetProperty("id").GetString();
+        if (title == "over-limit") title = new string('x', runtime.GetProperty("maxTitleLength").GetInt32() + 1);
+        var response = await client.PutAsJsonAsync($"/api/sessions/{id}", new { title });
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("title").GetString()
+            .Should().Contain("Supply a title");
+        (await client.GetFromJsonAsync<JsonElement>($"/api/sessions/{id}"))
+            .GetProperty("title").GetString().Should().Be("Keep me");
+    }
+
+    [TestMethod]
+    public async Task SessionMutationsRequireCsrfAndCannotModifyAnotherBrowserOrMissingSession()
+    {
+        using var factory = new AppFactory();
+        using var alice = factory.CreateClient();
+        await Runtime(alice);
+        var created = await alice.PostAsJsonAsync("/api/sessions/", new { title = "Private" });
+        var session = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var id = session.GetProperty("id").GetString();
+        alice.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");
+        foreach (var method in new[] { HttpMethod.Put, HttpMethod.Delete })
+        {
+            using var request = new HttpRequestMessage(method, $"/api/sessions/{id}")
+            {
+                Content = method == HttpMethod.Put ? JsonContent.Create(new { title = "Unsafe" }) : null
+            };
+            var response = await alice.SendAsync(request);
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await response.Content.ReadAsStringAsync()).Should().Contain("verification token");
+        }
+        using var bob = factory.CreateClient();
+        await Runtime(bob);
+        foreach (var target in new[] { id, Guid.NewGuid().ToString("N") })
+        {
+            (await bob.PutAsJsonAsync($"/api/sessions/{target}", new { title = "Foreign" }))
+                .StatusCode.Should().Be(HttpStatusCode.NotFound);
+            (await bob.DeleteAsync($"/api/sessions/{target}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        }
+        (await alice.GetFromJsonAsync<JsonElement>($"/api/sessions/{id}"))
+            .GetProperty("title").GetString().Should().Be("Private");
+    }
+
+    [TestMethod]
     public async Task AnonymousRequestsStillRequireCsrfForMutations()
     {
         using var factory = new AppFactory();

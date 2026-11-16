@@ -13,10 +13,12 @@ export function createApi(getToken, fetcher = fetch) {
     });
     if (!response.ok) {
       const problem = await response.json().catch(() => null);
-      throw new Error(problem?.title ?? (response.status === 401
+      const error = new Error(problem?.title ?? (response.status === 401
         ? "Access denied. Check the Azure application's access settings."
         : response.status === 429 ? "The service is busy. Please wait a moment."
         : `Request failed (${response.status}).`));
+      error.status = response.status;
+      throw error;
     }
     return response.status === 204 ? undefined : response.json();
   };
