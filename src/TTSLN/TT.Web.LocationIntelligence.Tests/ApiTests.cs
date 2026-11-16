@@ -48,10 +48,14 @@ public sealed class ApiTests
         var client = factory.CreateClient();
         if (subject is not null)
         {
-            var principal = new { auth_typ = "aad", claims = new[]
+            var principal = new
+            {
+                auth_typ = "aad",
+                claims = new[]
             {
                 new { typ = "oid", val = subject }, new { typ = "tid", val = "test-tenant" }
-            }};
+            }
+            };
             client.DefaultRequestHeaders.Add("X-MS-CLIENT-PRINCIPAL",
                 Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(principal))));
         }

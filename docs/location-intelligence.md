@@ -1,0 +1,294 @@
+# Location Intelligence web workspace
+
+[Documentation index](README.md) | [Repository overview](../README.md)
+
+`src\TTSLN\TT.Web.LocationIntelligence` is an ASP.NET Core 10 application with a
+TomTom-inspired Vue workspace, Font Awesome icons, Cosmos DB conversations, and
+SignalR notifications. It reuses the console sample's Microsoft Agent Framework,
+Foundry project endpoint, and remote TomTom Maps MCP integration.
+
+## Run locally
+
+You need .NET 10, Node.js 22.12 or later, Azure CLI, WSLC, a Foundry project with a
+tool-capable deployment, and a TomTom MCP-enabled API key. Model and tool calls
+use hosted services and can incur charges; the Cosmos emulator is local.
+
+From the repository root in PowerShell:
+
+```powershell
+az login
+$project = '.\src\TTSLN\TT.Web.LocationIntelligence\TT.Web.LocationIntelligence.csproj'
+dotnet user-secrets set 'Agent:Endpoint' 'https://<resource>.services.ai.azure.com/api/projects/<project>' --project $project
+dotnet user-secrets set 'Agent:Model' '<deployment-name>' --project $project
+$key = Read-Host 'TomTom API key' -MaskInput
+dotnet user-secrets set 'Agent:TomTomApiKey' $key --project $project
+Remove-Variable key
+```
+
+Start the HTTPS emulator, with its published endpoint restricted to loopback:
+
+```powershell
+wslc volume create tt-location-cosmos-data
+wslc run -d --name tt-location-cosmos -p 127.0.0.1:8081:8081 `
+  --mount type=volume,source=tt-location-cosmos-data,target=/data `
+  mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-latest `
+  --protocol https --enable-explorer false
+```
+
+Build the client and run the web app:
+
+```powershell
+Push-Location .\src\TTSLN\TT.Web.LocationIntelligence
+npm ci
+npm run build
+Pop-Location
+$env:ASPNETCORE_ENVIRONMENT = 'Development'
+dotnet run --project $project --urls http://127.0.0.1:5088
+```
+
+Open `http://127.0.0.1:5088`, create a conversation, and send a question. Your
+messages appear on the right, and agent replies on the left. Each completed
+reply shows its configured model deployment and provider-reported input/output
+token counts. Missing usage is displayed as **not reported**, never estimated.
+The options dialog controls compact spacing and usage display; these preferences
+stay in browser local storage. Credentials are never editable in the browser.
+
+Development uses **AzureCliCredential** for Foundry and the CLI-issued tenant/object
+identity for session ownership. Every browser reaching a development instance
+acts as the signed-in CLI operator. Bind it to loopback and do not expose it as a
+multi-user service. Production ignores development principal headers and requires
+the platform identity described below.
+
+The development settings contain only the documented, public emulator key, not
+an Azure account secret. The Linux emulator uses a self-signed certificate;
+certificate validation is bypassed **only in Development with UseEmulator=true**.
+The vNext emulator does not enforce authentication. Never expose its ports to
+untrusted networks.
+
+## Configuration reference
+
+Use user secrets locally and Container Apps environment variables/secret
+references in production. ASP.NET configuration uses `__` in environment
+variables, for example `Cosmos__Endpoint`. No `.env` loading is implemented.
+The console's `ENDPOINT`, `DEPLOYMENT_NAME`, and `TT_APIKEY` variables are not
+automatically mapped into the web application's options.
+
+| Setting | Purpose |
+|---|---|
+| `ASPNETCORE_ENVIRONMENT` | `Development` loads emulator settings; `Production` uses the real Cosmos account and `DefaultAzureCredential`. Other non-development environments use the same secure credential path. |
+| `Cosmos:Endpoint` | Emulator defaults to `https://localhost:8081`; production must be a non-loopback HTTPS Cosmos endpoint. |
+| `Cosmos:Database` | Database name, default `LocationIntelligence`. |
+| `Cosmos:Container` | Container name, default `Conversations`, partition key **`/ownerId`**. |
+| `Cosmos:UseEmulator` | Must be `true` in Development and `false` outside Development. |
+| `Cosmos:EmulatorKey` | Public emulator credential; never used by the production client. |
+| `Agent:Endpoint` | Foundry **project** endpoint, not an Azure OpenAI resource endpoint. |
+| `Agent:Model` | Tool-capable model deployment name. |
+| `Agent:TomTomApiKey` | TomTom secret, supplied server-side only. |
+| `Agent:McpEndpoint` | Default `https://mcp.tomtom.com/maps?apps=false`. |
+| `Agent:Instructions` | Server-managed assistant instructions. |
+| `Chat:MaxMessageLength` | User message limit, default/max 8,000 characters. |
+| `Chat:MaxTurns` | Conversation bound, default/max 40 turns. Start a new conversation when full. |
+| `Chat:ReplyTimeoutSeconds` | Model/tool timeout, default 180, supported range 30-600 seconds. |
+| `Chat:PageSize` | Session listing page size, default 30, maximum 100. |
+| `Identity:TrustEasyAuth` | Must be explicitly enabled outside Development, **only** behind enforced Easy Auth. |
+| `Identity:DevelopmentScope` | CLI identity token scope; defaults to Azure Resource Manager. |
+| `ApplicationInsights:ConnectionString` | Optional Application Insights connection string; enables request/dependency telemetry and `ILogger` export. |
+
+Database/identity options are validated at startup. Foundry settings can initially
+be empty so you can test the workspace and database without a model: the UI
+displays a setup banner, and sends return an explicit 503 while preserving the
+question and a failed reply. It does not generate demo answers.
+
+## Build and run containers with WSLC
+
+The repository-root `containers\LocationIntelligence.Dockerfile` has a Node build
+stage, a .NET publish stage, a non-root production image, and a separate
+development target containing Azure CLI. The production image does not include
+the SDK, npm, or Azure CLI. Fonts, icons, Vue, and SignalR are bundled locally.
+
+For a fresh local stack, optionally export the web settings into your current
+shell and run:
+
+```powershell
+$env:Agent__Endpoint = 'https://<resource>.services.ai.azure.com/api/projects/<project>'
+$env:Agent__Model = '<deployment-name>'
+$env:Agent__TomTomApiKey = Read-Host 'TomTom API key' -MaskInput
+.\containers\Start-Local.ps1
+```
+
+The script builds the development image, creates a private bridge network and
+persistent Cosmos, Azure CLI, and data-protection volumes, starts both
+containers, and waits for database readiness. It publishes only loopback ports,
+defaults to `http://localhost:8088`, and fails rather than removing an existing
+container with the same name. Stop/remove an existing, intentionally replaceable
+instance before starting a fresh stack; the named volumes retain data.
+
+Windows Azure CLI caches cannot simply be mounted into Linux. Sign in once
+**inside the development container**, using its persisted CLI volume:
+
+```powershell
+wslc exec -it tt-location-intelligence az login --use-device-code
+```
+
+Complete the sign-in in your browser, then reload the workspace. Neither
+Windows user secrets nor Windows CLI tokens are copied into the image.
+
+If your network requires package mirrors, pass them without editing the
+Dockerfile or committing machine-specific registry configuration:
+
+```powershell
+.\containers\Start-Local.ps1 -NpmRegistry '<npm-registry-url>' -NugetSource '<nuget-v3-index-url>'
+```
+
+To build the production target independently:
+
+```powershell
+wslc build --target production -f .\containers\LocationIntelligence.Dockerfile `
+  -t tt-location-intelligence:production .
+```
+
+The equivalent build arguments are `NPM_REGISTRY` and `NUGET_SOURCE`, which
+default to the public registries. If a custom registry requires credentials,
+use your build system's secret facilities rather than build arguments.
+
+## Deploy behind Azure Container Apps Easy Auth
+
+1. Provision the Cosmos database and container in advance with `/ownerId` as
+   the partition key. Production never creates databases/containers.
+1. Enable a managed identity for the container app. Give it Cosmos DB
+   **data-plane** access, including metadata, item read/write, and queries
+   (for example Cosmos DB Built-in Data Contributor scoped appropriately).
+   Grant the Foundry project/model permissions required by your deployment.
+1. Configure Microsoft Entra Easy Auth, **Require authentication**, an appropriate
+   tenant and allowed audiences, and HTTPS-only ingress. Restrict application
+   assignment if access should be limited to selected users.
+1. Set `ASPNETCORE_ENVIRONMENT=Production`, the production `Cosmos__Endpoint`,
+   `Cosmos__Database`, `Cosmos__Container`, `Cosmos__UseEmulator=false`, and
+   `Identity__TrustEasyAuth=true`. Configure the agent settings and optional
+   Application Insights connection string through secret references.
+1. Expose target port **8080**, enable WebSockets, and configure liveness on
+   `/health` and readiness on `/health/ready`. Allow anonymous health probes at
+   the platform level if your probe path traverses Easy Auth.
+
+The application accepts Entra `X-MS-CLIENT-PRINCIPAL` claims only outside
+Development with the explicit trust setting. This header is **not a token
+validator**: trust depends on Container Apps stripping externally supplied
+identity headers and injecting the validated principal. Do not expose a path
+that bypasses that sidecar or set the trust flag on an ordinary public server.
+The owner partition key is derived from the validated tenant/object IDs.
+
+`DefaultAzureCredential` authenticates Cosmos and Foundry service calls,
+independently of the browser's Easy Auth session. No production Cosmos account
+key is required. For a user-assigned managed identity, configure its client ID
+using the standard Azure Identity environment settings.
+
+Run **one replica** initially: the built-in SignalR lifetime manager is
+process-local. Before scaling out, configure Azure SignalR Service or a shared
+backplane and connection affinity as appropriate. Cosmos ETags still prevent
+cross-replica lost updates, but do not distribute SignalR notifications.
+Persist/share ASP.NET data-protection keys for restarts or multiple replicas
+and encrypt those keys at rest using your deployment's key-management policy.
+For long model calls, align ingress/client request timeouts with the configured
+reply timeout; generation is request-driven, not a durable background queue.
+
+## Architecture and API reference
+
+The Razor page is only the document shell. `Client\ChatApp.vue` owns client
+operations; `Client\api.js` centralizes same-origin JSON fetches, CSRF headers,
+and Problem Details handling. All browser data operations call minimal APIs;
+SignalR carries only conversation-change notifications.
+
+| Feature | Location |
+|---|---|
+| Configuration and middleware | `Program.cs` |
+| DTOs, options, persistence, turn orchestration, Foundry/MCP and hub | `Features\Chat` |
+| CLI identity and Easy Auth principal adapter | `Features\Identity` |
+| Sanitized errors, runtime information and readiness | `Features\Operations` |
+| UI, styles and client tests | `Client` |
+| MSTest unit/API/emulator tests | `..\TT.Web.LocationIntelligence.Tests` |
+
+| Endpoint | Contract |
+|---|---|
+| `GET /api/runtime` | Authenticated safe database/environment/model information and CSRF token. Never returns credentials. |
+| `GET /api/sessions/?continuationToken=...` | Owner-only summaries and Cosmos continuation token; message content is excluded. |
+| `POST /api/sessions/` | JSON `{ "title": "Amsterdam trip" }`; requires `X-CSRF-TOKEN` plus the verification cookie. |
+| `GET /api/sessions/{id}` | Owner-only conversation and saved messages; another owner's ID returns 404. |
+| `POST /api/sessions/{id}/messages` | JSON `{ "requestId": "<new-guid>", "content": "Your question" }`; requires CSRF verification. |
+| `/hubs/chat` | Authenticated SignalR endpoint; joins the server-derived owner's group. |
+| `GET /health` | Anonymous process liveness, independent of Cosmos. |
+| `GET /health/ready` | Anonymous Cosmos connectivity/readiness; 503 when unavailable. |
+
+Sessions embed bounded messages so each turn-state change is one atomic Cosmos
+item replacement. ETags reject stale writes. A timed lease serializes agent
+replies; an interrupted lease expires so a later send can recover. Requests
+with the same ID do not invoke the model twice. User messages and a pending
+assistant entry are saved before model execution, then replaced with the
+completed response or an explicit failure. Failed assistant output is excluded
+from future model context. Browser disconnection does not cancel the provider
+timeout or cleanup write, but process termination can interrupt a pending turn.
+
+The implementation limits document size to 1.8 MB, with reply headroom and
+JSON escaping accounted for, below Cosmos DB's 2 MB item limit. Replies are
+bounded to 16,000 characters. Start a new conversation once it reaches either
+the turn or size limit. There is no unbounded message array, automatic retention
+policy, deletion API, or full conversation export.
+
+Structured `ILogger` events include session IDs, deployment and token counts,
+not intentional prompt/reply logging. Application Insights receives logs when
+its connection string is configured. Treat provider exception diagnostics and
+telemetry as potentially sensitive and apply appropriate access and retention
+policies.
+
+## Tests and verification
+
+From the repository root:
+
+```powershell
+dotnet test .\src\TTSLN\TT.Web.LocationIntelligence.Tests
+Push-Location .\src\TTSLN\TT.Web.LocationIntelligence
+npm ci
+npm test
+npm run build
+Pop-Location
+```
+
+The Cosmos integration test is opt-in because it requires a running emulator:
+
+```powershell
+$env:RUN_COSMOS_TESTS = 'true'
+# Optional: $env:TEST_COSMOS_ENDPOINT = 'https://localhost:8081'
+dotnet test .\src\TTSLN\TT.Web.LocationIntelligence.Tests
+Remove-Item Env:\RUN_COSMOS_TESTS
+```
+
+It uses `LocationIntelligenceTests`, verifies reads across independent clients,
+owner isolation and stale ETags, and deletes its own test conversation. Without
+the flag it is explicitly reported as inconclusive/skipped. Other tests cover
+turn ordering, duplicate sends, provider failures, concurrent sends, size limits,
+authentication, CSRF, HTTP persistence contracts, usage metadata and health.
+The provider in unit/API tests is mocked; those tests do not claim a live
+Foundry/TomTom response.
+
+Check running containers:
+
+```powershell
+wslc list
+wslc logs --tail 40 tt-location-intelligence
+Invoke-WebRequest http://localhost:8088/health
+Invoke-WebRequest http://localhost:8088/health/ready
+```
+
+## Troubleshooting
+
+| Symptom | Action |
+|---|---|
+| 401 in Development | Run `az login` in the same OS/container as the app; do not copy Windows credential caches into Linux. |
+| Agent setup banner / 503 on send | Configure the web app's `Agent` options; console environment-variable names do not apply. |
+| Readiness 503 | Check emulator startup, HTTPS, endpoint/DNS and volume permissions; in production check Cosmos data-plane RBAC. |
+| Production startup validation fails | Supply a real HTTPS Cosmos endpoint, disable emulator mode, and explicitly configure the Easy Auth trust boundary. |
+| Send returns 409 | Another reply or tab owns the turn; reload the conversation. Do not automatically retry with a new request ID. |
+| Browser loses its HTTP response | Reload the session before resubmitting; the turn may already be persisted. |
+| Live indicator disconnects | Click Reconnect. Reconnection reloads persisted state; HTTP responses remain authoritative. |
+| Turn stays pending after a process crash | After the lease expires, the composer re-enables; the next send marks the interrupted reply as failed. |
+| NuGet/npm cannot be reached from WSLC | Supply reachable registry build arguments. Do not disable package TLS verification. |
+| CSS or JavaScript missing | Run `npm ci` then `npm run build`; `dotnet publish` also builds assets unless `SkipClientBuild=true` is explicitly supplied. |

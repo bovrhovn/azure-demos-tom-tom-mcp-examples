@@ -3,6 +3,10 @@
 A C# console sample that connects a **Microsoft Foundry-backed agent** to the
 **remote TomTom Maps MCP server**, discovers its tools, and answers one location question.
 
+The **[Location Intelligence web workspace](docs/location-intelligence.md)** adds a
+TomTom-inspired Vue chat UI, Cosmos DB sessions, SignalR updates, model/token
+metadata, Application Insights logging, and WSLC container definitions.
+
 **.NET 10 · C# · MCP over HTTP · Spectre.Console · MIT**
 
 ## ⚡ Quick start
@@ -35,6 +39,7 @@ completed answer and exits; there is no chat loop or token streaming.
 |---|---|
 | [Documentation index](docs/README.md) | Choose a guide |
 | [Getting started](docs/getting-started.md) | Prerequisites, authentication, setup and first run |
+| [Location Intelligence web app](docs/location-intelligence.md) | Local emulator, Vue chat, configuration, WSLC, Easy Auth and tests |
 | [Environment variables](docs/environment-variables.md) | Every application variable, value acquisition and optional SDK credentials |
 | [Architecture](docs/architecture.md) | Source map, tool execution and lifecycle |
 | [Troubleshooting](docs/troubleshooting.md) | Configuration, connectivity and console limitations |

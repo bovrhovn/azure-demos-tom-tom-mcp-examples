@@ -43,8 +43,11 @@ public sealed class ChatServiceTests
         saved.Messages[0].Content.Should().Be("Plan a route.");
         saved.Messages[1].Should().BeEquivalentTo(new
         {
-            Content = "Take the A10.", Model = "test-deployment", InputTokens = (long?)27,
-            OutputTokens = (long?)11, Status = "completed"
+            Content = "Take the A10.",
+            Model = "test-deployment",
+            InputTokens = (long?)27,
+            OutputTokens = (long?)11,
+            Status = "completed"
         });
         saved.BusyUntil.Should().BeNull();
         responder.Verify(provider => provider.ReplyAsync(It.IsAny<IReadOnlyList<ChatMessage>>(),
