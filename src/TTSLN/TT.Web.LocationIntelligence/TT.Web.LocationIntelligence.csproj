@@ -16,6 +16,7 @@
         <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
         <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="3.2.0" />
         <PackageReference Include="ModelContextProtocol" Version="2.4.0" />
+        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.19.1" />
     </ItemGroup>
 
     <Target Name="BuildClient" BeforeTargets="ComputeFilesToPublish" Condition="'$(SkipClientBuild)' != 'true'">

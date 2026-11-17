@@ -86,6 +86,8 @@ automatically mapped into the web application's options.
 | `Cosmos:EmulatorKey` | Public emulator credential; never used by the production client. |
 | `Agent:Endpoint` | Foundry **project** endpoint, not an Azure OpenAI resource endpoint. |
 | `Agent:Model` | Tool-capable model deployment name. |
+| `Agent:Id` | Stable logical agent ID for monitoring, default `LocationIntelligence`. Keep consistent across restarts and replicas. |
+| `Agent:Name` | Agent display name in monitoring, default `LocationIntelligence`. |
 | `Agent:TomTomApiKey` | TomTom secret, supplied server-side only. |
 | `Agent:McpEndpoint` | Default `https://mcp.tomtom.com/maps?apps=false`. |
 | `Agent:Instructions` | Server-managed assistant instructions. |
@@ -96,7 +98,7 @@ automatically mapped into the web application's options.
 | `BrowserSession:CookieName` | Anonymous workspace cookie name, default `tt-browser-session`. |
 | `ReverseProxy:ForwardedHeaders` | Defaults to `XForwardedFor, XForwardedProto`, restoring the original client IP and scheme. |
 | `ReverseProxy:TrustAllProxies` | Defaults to `false` (loopback proxies only); container images set it to `true` for Azure ingress. |
-| `ApplicationInsights:ConnectionString` | Optional Application Insights connection string; enables request/dependency telemetry and `ILogger` export. |
+| `ApplicationInsights:ConnectionString` | Optional Application Insights connection string; enables request/dependency telemetry, agent/model/tool traces, agent metrics, and `ILogger` export. Falls back to `APPLICATIONINSIGHTS_CONNECTION_STRING`. |
 
 Application options are bound in `Configuration\ServiceRegistration.cs`, with
 each options class in its own file under `Options`. Database options are
@@ -104,6 +106,27 @@ validated at startup. Foundry settings can initially
 be empty so you can test the workspace and database without a model: the UI
 displays a setup banner, and sends return an explicit 503 while preserving the
 question and a failed reply. It does not generate demo answers.
+
+### Agent monitoring
+
+Set `ApplicationInsights__ConnectionString` (or the standard
+`APPLICATIONINSIGHTS_CONNECTION_STRING`) through a Container Apps secret reference
+or local user secrets. No telemetry exporter is registered without a connection
+string. The existing Application Insights OpenTelemetry pipeline also collects
+the `TT.Web.LocationIntelligence.Agent` activity source and meter.
+
+After sending questions, open the connected Application Insights resource and
+select **Agents (Preview)**, then **View Traces with Agent Runs** to inspect
+agent executions, model calls, tool calls, durations, failures, and actual token
+usage when reported by the provider. Telemetry ingestion can take a few minutes.
+See [Monitor AI agents with Application Insights](https://learn.microsoft.com/azure/azure-monitor/app/agents-view).
+
+Agent and model instrumentation explicitly disables sensitive-data capture,
+including when `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` is enabled
+in the environment. Prompts, replies, system instructions, tool arguments, and
+tool results are not intentionally recorded. Unknown token usage is not
+estimated. This instruments the local Agent Framework/MCP execution; it does not
+register a hosted Foundry agent or provision Azure resources.
 
 ## Build and run containers with WSLC
 

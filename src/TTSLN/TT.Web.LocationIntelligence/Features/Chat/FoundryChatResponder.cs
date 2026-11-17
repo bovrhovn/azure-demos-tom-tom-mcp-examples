@@ -1,6 +1,5 @@
 using Azure.AI.Projects;
 using Azure.Core;
-using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Client;
@@ -29,8 +28,11 @@ public sealed class FoundryChatResponder(TokenCredential credential, IOptions<Ag
             AdditionalHeaders = new Dictionary<string, string> { ["tomtom-api-key"] = settings.TomTomApiKey }
         }), cancellationToken: cancellationToken);
         var tools = await mcp.ListToolsAsync(cancellationToken: cancellationToken);
-        var agent = new AIProjectClient(endpoint, credential).AsAIAgent(
-            model: settings.Model, instructions: settings.Instructions, tools: [.. tools], name: "LocationIntelligence");
+#pragma warning disable OPENAI001 // The Foundry agent uses the Responses API chat adapter.
+        using var chatClient = AgentTelemetry.CreateChatClient(new AIProjectClient(endpoint, credential)
+            .GetProjectOpenAIClient().GetProjectResponsesClient().AsIChatClient(settings.Model));
+#pragma warning restore OPENAI001
+        using var agent = AgentTelemetry.CreateAgent(chatClient, settings, [.. tools]);
         var history = messages.Where(message => message.Role == "user" || message.Status == "completed")
             .Select(message => new Microsoft.Extensions.AI.ChatMessage(
                 message.Role == "user" ? ChatRole.User : ChatRole.Assistant, message.Content));

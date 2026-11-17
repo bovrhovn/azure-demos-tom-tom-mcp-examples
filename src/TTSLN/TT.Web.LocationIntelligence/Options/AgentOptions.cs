@@ -6,6 +6,8 @@ namespace TT.Web.LocationIntelligence.Options;
 public sealed class AgentOptions
 {
     public const string Section = "Agent";
+    [Required] public string Id { get; set; } = "LocationIntelligence";
+    [Required] public string Name { get; set; } = "LocationIntelligence";
     public string Endpoint { get; set; } = "";
     public string Model { get; set; } = "";
     [Url] public string McpEndpoint { get; set; } = "https://mcp.tomtom.com/maps?apps=false";

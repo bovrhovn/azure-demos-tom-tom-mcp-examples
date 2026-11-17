@@ -3,6 +3,8 @@ using Azure.Core;
 using Azure.Identity;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Options;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 using TT.Web.LocationIntelligence.Features.Chat;
 using TT.Web.LocationIntelligence.Features.Operations;
 using TT.Web.LocationIntelligence.Options;
@@ -74,9 +76,14 @@ public static class ServiceRegistration
     private static void AddTelemetry(this WebApplicationBuilder builder)
     {
         var insights = builder.Configuration["ApplicationInsights:ConnectionString"];
+        if (string.IsNullOrWhiteSpace(insights))
+            insights = builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"];
         if (string.IsNullOrWhiteSpace(insights)) return;
 
         builder.Services.AddApplicationInsightsTelemetry(options => options.ConnectionString = insights);
+        builder.Services.AddOpenTelemetry()
+            .WithTracing(tracing => tracing.AddSource(AgentTelemetry.SourceName))
+            .WithMetrics(metrics => metrics.AddMeter(AgentTelemetry.SourceName));
         builder.Logging.AddFilter<OpenTelemetry.Logs.OpenTelemetryLoggerProvider>("", LogLevel.Information);
     }
 }
