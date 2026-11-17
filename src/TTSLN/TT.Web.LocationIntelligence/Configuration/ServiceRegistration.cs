@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using TT.Web.LocationIntelligence.Features.Chat;
 using TT.Web.LocationIntelligence.Features.Chat.Agents;
 using TT.Web.LocationIntelligence.Features.Chat.Persistence;
+using TT.Web.LocationIntelligence.Features.Maps;
 using TT.Web.LocationIntelligence.Features.Operations.Errors;
 using TT.Web.LocationIntelligence.Features.Operations.Health;
 using TT.Web.LocationIntelligence.Options.Agents;
@@ -26,11 +27,17 @@ public static class ServiceRegistration
             options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
         services.AddAntiforgery(options => options.HeaderName = "X-CSRF-TOKEN");
         services.AddDataProtection();
-        services.AddSignalR(options => options.EnableDetailedErrors = builder.Environment.IsDevelopment());
+        services.AddSignalR(options => options.EnableDetailedErrors = builder.Environment.IsDevelopment())
+            .AddHubOptions<MapsHub>(options => options.EnableDetailedErrors = false);
+        services.AddOptions<Microsoft.AspNetCore.SignalR.HubOptions<MapsHub>>()
+            .Configure<IOptions<ChatOptions>>((options, chat) =>
+                // Allow escaped JSON, encryption, and base64 overhead in browser-bound query tickets.
+                options.MaximumReceiveMessageSize = chat.Value.MaxMessageLength * 16L + 4096);
 
         services.AddApplicationOptions(builder.Environment);
         services.AddProxySupport();
         services.AddChatServices();
+        services.AddSingleton<IMapsResponder, FoundryMapsResponder>();
         builder.AddTelemetry();
     }
 
@@ -45,6 +52,11 @@ public static class ServiceRegistration
             .ValidateOnStart();
         services.AddOptions<AgentOptions>().BindConfiguration(AgentOptions.Section)
             .ValidateDataAnnotations().ValidateOnStart();
+        services.AddOptions<MapsOptions>().BindConfiguration(MapsOptions.Section)
+            .ValidateDataAnnotations()
+            .Validate(options => Uri.TryCreate(options.McpEndpoint, UriKind.Absolute, out var uri) && uri.Scheme == "https",
+                "Maps requires an HTTPS MCP endpoint.")
+            .ValidateOnStart();
         services.AddOptions<ChatOptions>().BindConfiguration(ChatOptions.Section)
             .ValidateDataAnnotations().ValidateOnStart();
         services.AddOptions<BrowserSessionOptions>().BindConfiguration(BrowserSessionOptions.Section)

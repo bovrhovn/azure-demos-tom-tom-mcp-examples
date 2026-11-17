@@ -87,7 +87,7 @@ public static class ChatEndpoints
             .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(502).ProducesProblem(503);
     }
 
-    private static async ValueTask<object?> ValidateCsrfAsync(EndpointFilterInvocationContext context,
+    internal static async ValueTask<object?> ValidateCsrfAsync(EndpointFilterInvocationContext context,
         EndpointFilterDelegate next)
     {
         var method = context.HttpContext.Request.Method;

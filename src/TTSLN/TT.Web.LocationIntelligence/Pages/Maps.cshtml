@@ -1,0 +1,10 @@
+@page
+@{
+    ViewData["Title"] = "Live Maps";
+    Response.Headers.CacheControl = "no-store";
+}
+<div id="app" data-workspace="maps"><p>Loading your live maps workspace...</p></div>
+<noscript>Live Maps requires JavaScript to stream answers and display interactive maps.</noscript>
+@section Scripts {
+    <script type="module" src="~/dist/app.js" asp-append-version="true"></script>
+}

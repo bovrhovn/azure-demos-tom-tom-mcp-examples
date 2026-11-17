@@ -6,6 +6,8 @@ A C# console sample that connects a **Microsoft Foundry-backed agent** to the
 The **[Location Intelligence web workspace](docs/location-intelligence.md)** adds a
 TomTom-inspired Vue chat UI, Cosmos DB sessions, SignalR updates, model/token
 metadata, Application Insights logging, and WSLC container definitions.
+Its **Live Maps** page streams a stateless agent's answers and renders interactive
+TomTom MCP Apps for routes and places, without saving results.
 
 **.NET 10 · C# · MCP over HTTP · Spectre.Console · MIT**
 
@@ -39,7 +41,7 @@ completed answer and exits; there is no chat loop or token streaming.
 |---|---|
 | [Documentation index](docs/README.md) | Choose a guide |
 | [Getting started](docs/getting-started.md) | Prerequisites, authentication, setup and first run |
-| [Location Intelligence web app](docs/location-intelligence.md) | Local emulator, Vue chat, configuration, WSLC, Azure ingress and tests |
+| [Location Intelligence web app](docs/location-intelligence.md) | Vue chat, live MCP Apps maps, configuration, WSLC, Azure ingress and tests |
 | [Environment variables](docs/environment-variables.md) | Every application variable, value acquisition and optional SDK credentials |
 | [Architecture](docs/architecture.md) | Source map, tool execution and lifecycle |
 | [Troubleshooting](docs/troubleshooting.md) | Configuration, connectivity and console limitations |

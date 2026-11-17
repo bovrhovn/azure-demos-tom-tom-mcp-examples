@@ -2,6 +2,7 @@
 import AppIcon from "./AppIcon.vue";
 
 const emit = defineEmits(["open-options"]);
+defineProps({ activePage: { type: String, default: "chat" }, showOptions: { type: Boolean, default: true } });
 </script>
 
 <template>
@@ -12,10 +13,14 @@ const emit = defineEmits(["open-options"]);
     </a>
     <span class="header-divider"></span>
     <span class="product-name">Location Intelligence <span class="preview-tag">PLAYGROUND</span></span>
+    <nav class="workspace-nav" aria-label="Workspaces">
+      <a href="/" :aria-current="activePage === 'chat' ? 'page' : undefined">Chat</a>
+      <a href="/Maps" :aria-current="activePage === 'maps' ? 'page' : undefined">Live Maps</a>
+    </nav>
     <a class="docs-link" href="https://docs.tomtom.com/" target="_blank" rel="noopener noreferrer">
       Documentation <AppIcon name="arrow-up-right-from-square" />
     </a>
-    <button type="button" class="icon-button" aria-label="Open options" @click="emit('open-options')">
+    <button v-if="showOptions" type="button" class="icon-button" aria-label="Open options" @click="emit('open-options')">
       <AppIcon name="sliders" />
     </button>
   </header>

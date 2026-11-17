@@ -6,6 +6,8 @@
 TomTom-inspired Vue 3 workspace, inline SVG icons, Cosmos DB conversations, and
 SignalR notifications. It reuses the console sample's Microsoft Agent Framework,
 Foundry project endpoint, and remote TomTom Maps MCP integration.
+The **Live Maps** header link opens a separate, stateless MCP Apps workspace at
+`/Maps`, with streamed answers, live tool activity, and interactive maps.
 
 ## Run locally
 
@@ -51,7 +53,8 @@ messages appear on the right, and agent replies on the left. Each completed
 reply shows its configured model deployment and provider-reported input/output
 token counts. Missing usage is displayed as **not reported**, never estimated.
 The options dialog controls compact spacing and usage display; these preferences
-stay in browser local storage. Credentials are never editable in the browser.
+stay in browser local storage. Credentials are never editable in the browser. The Live Maps app has an
+additional browser-key requirement described below.
 
 Foundry calls use **DefaultAzureCredential**, including Azure CLI credentials
 from `az login` during local development. Conversations are grouped by
@@ -88,9 +91,16 @@ automatically mapped into the web application's options.
 | `Agent:Model` | Tool-capable model deployment name. |
 | `Agent:Id` | Stable logical agent ID for monitoring, default `LocationIntelligence`. Keep consistent across restarts and replicas. |
 | `Agent:Name` | Agent display name in monitoring, default `LocationIntelligence`. |
-| `Agent:TomTomApiKey` | TomTom secret, supplied server-side only. |
+| `Agent:TomTomApiKey` | Supplied through server configuration and the `tomtom-api-key` MCP header. Live Maps also exposes it to TomTom's sandboxed app for browser map requests; see below. |
 | `Agent:McpEndpoint` | Default `https://mcp.tomtom.com/maps?apps=false`. |
 | `Agent:Instructions` | Server-managed assistant instructions. |
+| `Maps:McpEndpoint` | Separate HTTPS MCP Apps endpoint, default `https://mcp.tomtom.com/maps?apps=true`. Does not change the chat agent's data-only endpoint. |
+| `Maps:Name` | Stateless maps agent ID/name, default `TomTomInteractiveMaps`. |
+| `Maps:Instructions` | Maps agent instructions; request accurate tool-backed answers and interactive visualizations. |
+| `Maps:DefaultPrompt` | Editable initial question, default Amsterdam to Berlin avoiding toll roads with gas stations along the way. |
+| `Maps:TimeoutSeconds` | Maps query/app-tool timeout, default 180, supported range 30-600 seconds. |
+| `Maps:TicketLifetimeSeconds` | Browser-bound encrypted query ticket lifetime before starting a stream, default 60 seconds. |
+| `Maps:AppInitializationTimeoutSeconds` | Time before reporting an uninitialized iframe, default 30 seconds. |
 | `Chat:MaxMessageLength` | User message limit, default/max 8,000 characters. |
 | `Chat:MaxTitleLength` | Conversation title limit, default 120, supported range 1-200 characters. |
 | `Chat:MaxTurns` | Conversation bound, default/max 40 turns. Start a new conversation when full. |
@@ -128,6 +138,78 @@ in the environment. Prompts, replies, system instructions, tool arguments, and
 tool results are not intentionally recorded. Unknown token usage is not
 estimated. This instruments the local Agent Framework/MCP execution; it does not
 register a hosted Foundry agent or provision Azure resources.
+
+## Live Maps and MCP Apps
+
+Select **Live Maps** in the header or visit `http://127.0.0.1:5088/Maps`.
+The textbox is prefilled with:
+
+> Find the fastest route from Amsterdam to Berlin, avoiding toll roads,
+> and show me gas stations along the way.
+
+Edit the question or select **Explore with TomTom**. The page shows tool progress,
+answer text as it arrives, and each returned TomTom MCP App in an interactive
+map card. **Under the hood** exposes the complete received events, including
+tool arguments, full tool results with `_meta`, app resources, and provider
+usage when reported. This diagnostic panel renders JSON as text, not HTML.
+Agent Markdown uses the same sanitization as the conversation workspace.
+
+The backend follows the console sample's approach: connect to remote MCP over
+HTTP with `Agent:TomTomApiKey`, discover tools, attach them to a Foundry-backed
+agent, and execute the question. The maps agent uses its own instructions and
+`Maps:McpEndpoint`, so the persisted chat agent remains unchanged. Tools that
+support `show_ui` receive `true`. App-only tools are excluded from model tools.
+The host reads the `ui://` HTML resource declared in each tool's MCP metadata
+and sends the original result, including UI-only metadata, to the iframe.
+
+The stateless minimal API and SignalR contract is:
+
+| Route | Behavior |
+|---|---|
+| `GET /api/maps/config` | Public UI settings and endpoint paths; no credentials. |
+| `POST /api/maps/queries` | Validates CSRF and prompt length; returns a short-lived encrypted ticket bound to the browser cookie. |
+| `/hubs/maps`, streaming method `Query(ticket)` | Validates the ticket and streams status, text deltas, tool starts/results, app HTML/metadata, actual usage, and an explicit completion or sanitized error. |
+| `POST /api/maps/app-tools` | CSRF-protected proxy restricted to `tomtom-get-api-key`, `tomtom-get-app-config`, `tomtom-get-app-data`, and `tomtom-report-app-status`. |
+
+No query, result, map, or conversation is written to Cosmos, browser storage,
+or application-owned result storage. The browser holds results only for the
+current page. Query tickets contain an encrypted prompt and expire quickly;
+avoid recording request bodies or SignalR payloads in external diagnostics.
+Foundry and TomTom remain external services subject to their own data policies.
+**Stop exploration**, leaving the page, or losing the SignalR connection
+cancels provider work; partial output stays visible. Reconnection does not
+replay queries or recover results. Resubmission is a new billed operation.
+The existing application-level Cosmos configuration validation still applies,
+but this feature does not access the database.
+
+### Map sandbox, credentials, and network access
+
+Each third-party map runs in a scripts-only iframe with an opaque origin:
+no same-origin access, parent DOM, cookies, browser storage, popups, top-level navigation,
+camera, microphone, or geolocation grants. The host checks the message source,
+implements the MCP Apps initialization/input/result protocol, and proxies only
+the four app tools above. A restrictive Content Security Policy is inserted
+before app scripts; external resources/connections are limited to the
+resource's declared CSP domains. Unsupported host operations are rejected.
+
+**Important:** TomTom's official MCP App calls `tomtom-get-api-key` and uses
+the returned key directly for browser map requests. The configured TomTom
+key is consequently visible to the browser and its developer tools. It is
+not a server-only secret when Live Maps is enabled. Use a dedicated,
+least-privilege TomTom key with appropriate service/domain restrictions,
+quotas, and rotation. Do not expose this demo publicly without access
+restrictions: the anonymous cookie and CSRF validation are not authentication.
+Foundry credentials remain server-side.
+
+The browser must support WebGL and reach `https://cdn.jsdelivr.net`,
+`https://api.tomtom.com`, and TomTom subdomains declared by the resource.
+Fonts, Vue, and SignalR are still bundled locally; the third-party MCP App
+loads its own map dependencies. Network/CSP/API-key failures are surfaced
+in the map card rather than replaced with a static demo map.
+
+See TomTom's [interactive maps documentation](https://docs.tomtom.com/tomtom-maps-mcp/documentation/interactive-maps),
+[map tools](https://docs.tomtom.com/tomtom-maps-mcp/documentation/tools#maps--data-visualization),
+and the [MCP Apps protocol](https://modelcontextprotocol.io/docs/extensions/apps).
 
 ## Build and run containers with WSLC
 
@@ -238,7 +320,10 @@ by `Client\api.js` as `createApi`—`runtimeApi.js`, and `sessionsApi.js`),
 Awesome webfonts). All browser data operations call minimal APIs, errors return
 sanitized RFC 9457 `ProblemDetails` with `code` and `traceId` extensions
 (`httpClient.js` refreshes `/api/runtime` and retries once on `400`
-`csrf_invalid`), and SignalR carries only conversation notifications.
+`csrf_invalid`). `/hubs/chat` carries only conversation notifications.
+`Pages\Maps.cshtml` selects `Client\MapsApp.vue` through the same entry bundle;
+that separate workspace streams transient agent results through `/hubs/maps`
+and hosts sandboxed MCP Apps with `Client\services\mcpAppHost.js`.
 
 | Feature | Location |
 |---|---|
@@ -246,6 +331,7 @@ sanitized RFC 9457 `ProblemDetails` with `code` and `traceId` extensions
 | Service registration, option binding, proxy settings and telemetry | `Configuration\ServiceRegistration.cs` |
 | Configuration types (one per file) | `Options` |
 | DTOs, anonymous browser sessions, persistence, turn orchestration, Foundry/MCP and hub | `Features\Chat` |
+| Stateless maps agent, MCP App resources, query tickets, minimal APIs and streaming hub | `Features\Maps` |
 | Sanitized errors, runtime information and readiness | `Features\Operations` |
 | Modular Vue 3 UI (`services\`, `composables\`, `components\`), inline SVG icons, styles and client tests | `Client` |
 | MSTest unit/API/emulator tests | `..\TT.Web.LocationIntelligence.Tests` |
@@ -253,6 +339,7 @@ sanitized RFC 9457 `ProblemDetails` with `code` and `traceId` extensions
 | Endpoint | Contract |
 |---|---|
 | `GET /` | Razor shell (`Cache-Control: no-store`) with inline `#tt-runtime` `RuntimeResponse` JSON (`maxMessageLength`, `maxTitleLength`, `maxTurns`, `antiforgeryHeaderName`, `csrfToken`, `endpoints`). |
+| `GET /Maps` | Live Maps Razor shell (`Cache-Control: no-store`); see the [MCP Apps contract](#live-maps-and-mcp-apps) for maps APIs and streaming. |
 | `GET /api/runtime` | Anonymous typed `RuntimeResponse` (`Cache-Control: no-store`) for fallback and CSRF refresh (`endpoints`: `/api/runtime`, `/api/sessions`, `/hubs/chat`). Never returns credentials. |
 | `GET /api/sessions?continuationToken=...` | Browser-scoped summaries and Cosmos continuation token; message content is excluded. |
 | `POST /api/sessions` | JSON `{ "title": "Amsterdam trip" }` (optional, defaults to `"New exploration"`, bounded by `Chat:MaxTitleLength`); requires CSRF verification and returns `201 Created` with an opaque `ETag`. |
@@ -317,6 +404,14 @@ anonymous browser separation, CSRF, HTTP persistence contracts, usage metadata,
 forwarded-header trust, anonymous SignalR notifications, and health.
 The provider in unit/API tests is mocked; those tests do not claim a live
 Foundry/TomTom response.
+Maps tests additionally exercise ordered SignalR streaming, full MCP result
+metadata, app HTML, ticket tampering/expiry/browser isolation, cancellation,
+CSRF, app-tool allowlisting, sanitized failures, and zero conversation writes.
+An in-process MCP server tests the actual SDK tool-call/resource-read path,
+including modern and legacy UI metadata. Vue tests cover streamed rendering,
+stale-event guards, reconnect behavior, iframe handshakes, source checks, CSP,
+and explicit initialization/tool errors. These do not replace a live validation
+with your own Foundry deployment and TomTom key.
 
 Check running containers:
 
@@ -341,3 +436,5 @@ Invoke-WebRequest http://localhost:8088/health/ready
 | Turn stays pending after a process crash | After the lease expires, the composer re-enables; the next send marks the interrupted reply as failed. |
 | NuGet/npm cannot be reached from WSLC | Supply reachable registry build arguments. Do not disable package TLS verification. |
 | CSS or JavaScript missing | Run `npm ci` then `npm run build`; `dotnet publish` also builds assets unless `SkipClientBuild=true` is explicitly supplied. |
+| Live Maps iframe stays blank | Check WebGL, browser console/CSP errors, and access to jsDelivr and TomTom APIs. Confirm the key permits the map services. |
+| Live Maps query was interrupted | Partial results are not saved. Wait for reconnection and submit explicitly; the original query is never replayed automatically. |
