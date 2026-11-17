@@ -78,6 +78,31 @@ it("sends Vue-reactive arguments and complete tool results as cloneable JSON-RPC
   }
 });
 
+it("omits null optional MCP result fields without discarding false values or nullable application data", async () => {
+  const f = fixture();
+  try {
+    f.app.result.structuredContent = null;
+    f.app.result.isError = null;
+    f.app.result._meta.optionalData = null;
+    await f.send({ method: "ui/notifications/initialized" });
+    expect(f.postMessage.mock.calls[1][0].params).toEqual({
+      content: f.app.result.content, _meta: { appData: "geometry", optionalData: null }
+    });
+    f.callTool.mockResolvedValue({
+      content: [{ type: "text", text: "config" }], _meta: null, isError: false,
+      structuredContent: { optionalData: null }
+    });
+    await f.send({ id: 2, method: "tools/call", params: { name: "tomtom-get-app-config" } });
+    expect(f.postMessage.mock.calls.at(-1)[0].result).toEqual({
+      content: [{ type: "text", text: "config" }], isError: false,
+      structuredContent: { optionalData: null }
+    });
+    expect(f.app.result).toHaveProperty("structuredContent", null);
+  } finally {
+    f.dispose();
+  }
+});
+
 it("constructs restrictive CSP before any untrusted script and preserves declared TomTom dependencies", () => {
   const html = sandboxDocument("<script>parent.document.body.innerHTML='bad'</script>", {
     ui: { csp: {
@@ -95,6 +120,50 @@ it("constructs restrictive CSP before any untrusted script and preserves declare
   expect(policy.content).not.toContain("evil.test");
   expect(policy.content).not.toContain("'unsafe-eval'");
   expect(sandboxDocument("<p>no policy</p>")).toContain("connect-src 'none'");
+});
+
+it("loads MapLibre's wrapped module worker in an opaque sandbox without granting same-origin access", () => {
+  const doc = new DOMParser().parseFromString(sandboxDocument("<script>window.vendor = true</script>", {
+    ui: { csp: { resourceDomains: ["blob:", "data:"], connectDomains: ["blob:"] } }
+  }), "text/html");
+  expect(doc.head.firstElementChild.content).toContain("worker-src blob: data:");
+  expect(doc.scripts[0].textContent).toContain("globalThis.Worker");
+  expect(doc.scripts[1].textContent).toBe("window.vendor = true");
+  const requests = [];
+  class NativeWorker {
+    constructor(url, options) { this.url = url; this.options = options; }
+  }
+  class BlobRequest {
+    open(method, url, async) {
+      requests.push({ method, url, async });
+      this.responseText = url.endsWith("wrapper") ? 'import "blob:null/worker";' : 'postMessage("rendered");';
+      this.status = 200;
+    }
+    send() {}
+  }
+  const sandbox = { Worker: NativeWorker, origin: "null" };
+  new Function("globalThis", "XMLHttpRequest", doc.scripts[0].textContent)(sandbox, BlobRequest);
+  const worker = new sandbox.Worker("blob:null/wrapper", { type: "module", name: "map" });
+  expect(decodeURIComponent(worker.url.split(",")[1])).toBe('postMessage("rendered");');
+  expect(worker.options).toEqual({ type: "module", name: "map" });
+  expect(requests).toEqual([
+    { method: "GET", url: "blob:null/wrapper", async: false },
+    { method: "GET", url: "blob:null/worker", async: false }
+  ]);
+  expect(new sandbox.Worker("blob:null/classic").url).toBe("blob:null/classic");
+  expect(new sandbox.Worker("https://cdn.example/worker.js", { type: "module" }).url)
+    .toBe("https://cdn.example/worker.js");
+  const sameOrigin = { Worker: NativeWorker, origin: "https://example.test" };
+  new Function("globalThis", "XMLHttpRequest", doc.scripts[0].textContent)(sameOrigin, BlobRequest);
+  expect(sameOrigin.Worker).toBe(NativeWorker);
+  class UnavailableBlob extends BlobRequest {
+    send() { this.status = 404; }
+  }
+  const unavailable = { Worker: NativeWorker, origin: "null" };
+  new Function("globalThis", "XMLHttpRequest", doc.scripts[0].textContent)(unavailable, UnavailableBlob);
+  expect(() => new unavailable.Worker("blob:null/expired", { type: "module" }))
+    .toThrow("Could not load the map rendering worker.");
+  expect(sandboxDocument("<p>Undeclared worker dependencies</p>")).not.toContain("globalThis.Worker");
 });
 
 it("reports initialization and tool failures explicitly and cleans up pending requests", async () => {

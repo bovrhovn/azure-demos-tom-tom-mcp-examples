@@ -2,6 +2,35 @@ const APP_TOOLS = new Set([
   "tomtom-get-api-key", "tomtom-get-app-config", "tomtom-get-app-data", "tomtom-report-app-status"
 ]);
 
+function protocolToolResult(result) {
+  // ASP.NET emits optional nulls, but the MCP Apps schemas require absent fields.
+  return Object.fromEntries(Object.entries(result).filter(([key, value]) =>
+    value !== null || !["structuredContent", "isError", "_meta"].includes(key)));
+}
+
+function installMapWorkerCompatibility() {
+  const NativeWorker = globalThis.Worker;
+  if (!NativeWorker || globalThis.origin !== "null") return;
+  globalThis.Worker = class extends NativeWorker {
+    constructor(url, options) {
+      if (options?.type === "module" && String(url).startsWith("blob:")) {
+        const read = (address) => {
+          const request = new XMLHttpRequest();
+          request.open("GET", address, false);
+          request.send();
+          if (request.status !== 200) throw new Error("Could not load the map rendering worker.");
+          return request.responseText;
+        };
+        let code = read(String(url));
+        const wrapper = code.match(/^\s*import\s*(["'])(blob:[^"']+)\1\s*;?\s*$/);
+        if (wrapper) code = read(wrapper[2]);
+        url = `data:application/javascript;charset=utf-8,${encodeURIComponent(code)}`;
+      }
+      super(url, options);
+    }
+  };
+}
+
 function sources(values = [], schemes = []) {
   return values.filter((value) => typeof value === "string" &&
     (schemes.includes(value) || /^https:\/\/(\*\.)?[a-z0-9.-]+(?::\d+)?$/i.test(value))).join(" ");
@@ -11,11 +40,12 @@ export function sandboxDocument(html, meta) {
   const csp = meta?.ui?.csp ?? {};
   const resources = sources(csp.resourceDomains, ["blob:", "data:"]);
   const connections = sources(csp.connectDomains, ["blob:"]);
+  const workers = ["blob:", "data:"].filter((scheme) => resources.split(" ").includes(scheme));
   const policy = [
     "default-src 'none'", `script-src 'unsafe-inline' ${resources}`,
     `style-src 'unsafe-inline' ${resources}`, `img-src data: blob: ${resources}`,
     `font-src data: ${resources}`, `media-src data: blob: ${resources}`,
-    `connect-src ${connections || "'none'"}`, `worker-src ${resources.includes("blob:") ? "blob:" : "'none'"}`,
+    `connect-src ${connections || "'none'"}`, `worker-src ${workers.join(" ") || "'none'"}`,
     "frame-src 'none'", "object-src 'none'", "base-uri 'none'", "form-action 'none'"
   ].join("; ");
   const doc = new DOMParser().parseFromString(html, "text/html");
@@ -23,6 +53,12 @@ export function sandboxDocument(html, meta) {
   tag.httpEquiv = "Content-Security-Policy";
   tag.content = policy;
   doc.head.prepend(tag);
+  if (workers.includes("blob:") && workers.includes("data:")) {
+    // MapLibre's blob module workers fail in opaque origins: maplibre/maplibre-gl-js#8909.
+    const compatibility = doc.createElement("script");
+    compatibility.textContent = `(${installMapWorkerCompatibility.toString()})();`;
+    tag.after(compatibility);
+  }
   return `<!doctype html>\n${doc.documentElement.outerHTML}`;
 }
 
@@ -50,7 +86,7 @@ export function connectMcpApp({ iframe, app, callTool, onReady, onError, timeout
       initialized = true;
       clearTimeout(timer);
       notify("ui/notifications/tool-input", { arguments: app.arguments });
-      notify("ui/notifications/tool-result", app.result);
+      notify("ui/notifications/tool-result", protocolToolResult(app.result));
       onReady();
       return;
     }
@@ -72,7 +108,7 @@ export function connectMcpApp({ iframe, app, callTool, onReady, onError, timeout
           }
         };
       } else if (method === "tools/call" && initialized && APP_TOOLS.has(params?.name)) {
-        result = await callTool(params.name, params.arguments ?? {}, controller.signal);
+        result = protocolToolResult(await callTool(params.name, params.arguments ?? {}, controller.signal));
         if (params.name === "tomtom-report-app-status" && params.arguments?.status === "failed")
           onError("TomTom could not draw this map. Check the API key permissions and browser network access.");
       } else if (method === "ping") {

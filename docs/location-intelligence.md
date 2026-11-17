@@ -161,6 +161,10 @@ agent, and execute the question. The maps agent uses its own instructions and
 support `show_ui` receive `true`. App-only tools are excluded from model tools.
 The host reads the `ui://` HTML resource declared in each tool's MCP metadata
 and sends the original result, including UI-only metadata, to the iframe.
+The default instructions require a separate `tomtom-routing` call for requested
+route restrictions. An along-route POI search alone does not enforce toll-road
+avoidance. If a search tool cannot consume the calculated geometry or those
+restrictions, its search corridor must not be presented as that exact route.
 
 The stateless minimal API and SignalR contract is:
 
@@ -191,6 +195,17 @@ implements the MCP Apps initialization/input/result protocol, and proxies only
 the four app tools above. A restrictive Content Security Policy is inserted
 before app scripts; external resources/connections are limited to the
 resource's declared CSP domains. Unsupported host operations are rejected.
+The host converts Vue-reactive payloads to plain JSON and omits null optional
+MCP result fields before messaging the app; nullable values inside application
+data remain intact.
+
+MapLibre currently has an [opaque-origin module-worker issue](https://github.com/maplibre/maplibre-gl-js/issues/8909).
+When the resource explicitly permits both `blob:` and `data:` workers, the
+sandbox installs a narrow compatibility adapter: it reads the already-local
+blob module (including MapLibre's import wrapper) and starts the same code from
+a `data:` module URL. No remote synchronous fetch is involved. Classic workers
+and external worker URLs are unchanged, and the iframe does not gain
+`allow-same-origin` or access to the parent application.
 
 **Important:** TomTom's official MCP App calls `tomtom-get-api-key` and uses
 the returned key directly for browser map requests. The configured TomTom
@@ -410,7 +425,8 @@ CSRF, app-tool allowlisting, sanitized failures, and zero conversation writes.
 An in-process MCP server tests the actual SDK tool-call/resource-read path,
 including modern and legacy UI metadata. Vue tests cover streamed rendering,
 stale-event guards, reconnect behavior, iframe handshakes, source checks, CSP,
-and explicit initialization/tool errors. These do not replace a live validation
+structured cloning of reactive payloads, optional MCP fields, opaque-origin
+worker compatibility, and explicit initialization/tool errors. These do not replace a live validation
 with your own Foundry deployment and TomTom key.
 
 Check running containers:
