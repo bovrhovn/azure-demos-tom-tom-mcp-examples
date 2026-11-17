@@ -5,7 +5,11 @@ using OptionsFactory = Microsoft.Extensions.Options.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 using TT.Web.LocationIntelligence.Features.Chat;
-using TT.Web.LocationIntelligence.Options;
+using TT.Web.LocationIntelligence.Features.Chat.Agents;
+using TT.Web.LocationIntelligence.Features.Chat.Contracts;
+using TT.Web.LocationIntelligence.Features.Chat.Models;
+using TT.Web.LocationIntelligence.Features.Chat.Realtime;
+using TT.Web.LocationIntelligence.Options.Chat;
 
 namespace TT.Web.LocationIntelligence.Tests;
 

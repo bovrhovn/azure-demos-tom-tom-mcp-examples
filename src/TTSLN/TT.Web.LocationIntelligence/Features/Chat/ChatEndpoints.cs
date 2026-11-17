@@ -1,20 +1,10 @@
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http.HttpResults;
-using Microsoft.AspNetCore.SignalR;
+using TT.Web.LocationIntelligence.Features.Chat.Contracts;
+using TT.Web.LocationIntelligence.Features.Chat.Models;
+using TT.Web.LocationIntelligence.Features.Chat.Persistence;
 
 namespace TT.Web.LocationIntelligence.Features.Chat;
-
-/// <summary>Groups realtime subscribers by anonymous browser session.</summary>
-public sealed class ChatHub : Hub
-{
-    public override async Task OnConnectedAsync()
-    {
-        await Groups.AddToGroupAsync(Context.ConnectionId,
-            BrowserSessionMiddleware.Owner(Context.GetHttpContext()
-                ?? throw new InvalidOperationException("Chat connections require an HTTP context.")));
-        await base.OnConnectedAsync();
-    }
-}
 
 /// <summary>Minimal HTTP API for conversations. SignalR is notification-only.</summary>
 public static class ChatEndpoints

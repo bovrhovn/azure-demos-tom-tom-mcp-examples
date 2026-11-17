@@ -2,9 +2,12 @@ using System.Net;
 using Azure.Core;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Options;
-using TT.Web.LocationIntelligence.Options;
+using TT.Web.LocationIntelligence.Features.Chat.Contracts;
+using TT.Web.LocationIntelligence.Features.Chat.Models;
+using TT.Web.LocationIntelligence.Options.Chat;
+using TT.Web.LocationIntelligence.Options.Persistence;
 
-namespace TT.Web.LocationIntelligence.Features.Chat;
+namespace TT.Web.LocationIntelligence.Features.Chat.Persistence;
 
 /// <summary>Uses owner-scoped point reads, projections and conditional writes.</summary>
 public sealed class CosmosChatStore(

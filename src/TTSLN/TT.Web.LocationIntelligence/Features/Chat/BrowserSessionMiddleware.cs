@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
-using TT.Web.LocationIntelligence.Options;
+using TT.Web.LocationIntelligence.Options.Chat;
 
 namespace TT.Web.LocationIntelligence.Features.Chat;
 

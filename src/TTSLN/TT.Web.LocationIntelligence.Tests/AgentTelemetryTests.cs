@@ -13,8 +13,8 @@ using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using TT.Web.LocationIntelligence.Configuration;
-using TT.Web.LocationIntelligence.Features.Chat;
-using TT.Web.LocationIntelligence.Options;
+using TT.Web.LocationIntelligence.Features.Chat.Agents;
+using TT.Web.LocationIntelligence.Options.Agents;
 using AIChatMessage = Microsoft.Extensions.AI.ChatMessage;
 
 namespace TT.Web.LocationIntelligence.Tests;

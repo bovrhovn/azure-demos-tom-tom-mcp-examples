@@ -3,9 +3,11 @@ using Azure.Core;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Client;
-using TT.Web.LocationIntelligence.Options;
+using TT.Web.LocationIntelligence.Features.Chat.Persistence;
+using TT.Web.LocationIntelligence.Options.Agents;
+using ChatMessage = TT.Web.LocationIntelligence.Features.Chat.Models.ChatMessage;
 
-namespace TT.Web.LocationIntelligence.Features.Chat;
+namespace TT.Web.LocationIntelligence.Features.Chat.Agents;
 
 /// <summary>Runs a Foundry agent with TomTom tools and persisted conversation context.</summary>
 public sealed class FoundryChatResponder(TokenCredential credential, IOptions<AgentOptions> options,

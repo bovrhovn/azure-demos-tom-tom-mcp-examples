@@ -9,7 +9,10 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using OptionsFactory = Microsoft.Extensions.Options.Options;
 using TT.Web.LocationIntelligence.Features.Chat;
-using TT.Web.LocationIntelligence.Options;
+using TT.Web.LocationIntelligence.Features.Chat.Models;
+using TT.Web.LocationIntelligence.Features.Chat.Persistence;
+using TT.Web.LocationIntelligence.Options.Chat;
+using TT.Web.LocationIntelligence.Options.Persistence;
 
 namespace TT.Web.LocationIntelligence.Tests;
 

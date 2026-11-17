@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.HttpOverrides;
 
-namespace TT.Web.LocationIntelligence.Options;
+namespace TT.Web.LocationIntelligence.Options.Hosting;
 
 public sealed class ReverseProxyOptions
 {

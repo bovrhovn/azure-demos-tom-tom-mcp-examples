@@ -6,8 +6,14 @@ using Microsoft.Extensions.Options;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using TT.Web.LocationIntelligence.Features.Chat;
-using TT.Web.LocationIntelligence.Features.Operations;
-using TT.Web.LocationIntelligence.Options;
+using TT.Web.LocationIntelligence.Features.Chat.Agents;
+using TT.Web.LocationIntelligence.Features.Chat.Persistence;
+using TT.Web.LocationIntelligence.Features.Operations.Errors;
+using TT.Web.LocationIntelligence.Features.Operations.Health;
+using TT.Web.LocationIntelligence.Options.Agents;
+using TT.Web.LocationIntelligence.Options.Chat;
+using TT.Web.LocationIntelligence.Options.Hosting;
+using TT.Web.LocationIntelligence.Options.Persistence;
 
 namespace TT.Web.LocationIntelligence.Configuration;
 

@@ -1,5 +1,8 @@
 using System.Text.Json;
 using TT.Web.LocationIntelligence.Features.Chat;
+using TT.Web.LocationIntelligence.Features.Chat.Contracts;
+using TT.Web.LocationIntelligence.Features.Chat.Models;
+using TT.Web.LocationIntelligence.Features.Chat.Persistence;
 
 namespace TT.Web.LocationIntelligence.Tests;
 

@@ -1,8 +1,8 @@
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
-using TT.Web.LocationIntelligence.Options;
+using TT.Web.LocationIntelligence.Options.Agents;
 
-namespace TT.Web.LocationIntelligence.Features.Chat;
+namespace TT.Web.LocationIntelligence.Features.Chat.Agents;
 
 public static class AgentTelemetry
 {

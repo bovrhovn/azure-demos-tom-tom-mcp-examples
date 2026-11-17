@@ -14,7 +14,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
-using TT.Web.LocationIntelligence.Features.Chat;
+using TT.Web.LocationIntelligence.Features.Chat.Agents;
+using TT.Web.LocationIntelligence.Features.Chat.Models;
+using TT.Web.LocationIntelligence.Features.Chat.Persistence;
 
 namespace TT.Web.LocationIntelligence.Tests;
 

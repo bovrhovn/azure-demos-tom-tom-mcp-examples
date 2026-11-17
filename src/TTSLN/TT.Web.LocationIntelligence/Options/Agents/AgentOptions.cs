@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace TT.Web.LocationIntelligence.Options;
+namespace TT.Web.LocationIntelligence.Options.Agents;
 
 /// <summary>Configures Foundry and the remote TomTom tool connection.</summary>
 public sealed class AgentOptions

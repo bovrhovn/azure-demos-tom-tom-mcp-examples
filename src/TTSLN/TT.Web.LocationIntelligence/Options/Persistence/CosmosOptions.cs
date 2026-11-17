@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace TT.Web.LocationIntelligence.Options;
+namespace TT.Web.LocationIntelligence.Options.Persistence;
 
 /// <summary>Configures the Cosmos account and container; keys are emulator-only.</summary>
 public sealed class CosmosOptions

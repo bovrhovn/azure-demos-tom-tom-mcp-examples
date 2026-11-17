@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using TT.Web.LocationIntelligence.Configuration;
 using TT.Web.LocationIntelligence.Features.Chat;
+using TT.Web.LocationIntelligence.Features.Chat.Realtime;
 using TT.Web.LocationIntelligence.Features.Operations;
 
 var builder = WebApplication.CreateBuilder(args);

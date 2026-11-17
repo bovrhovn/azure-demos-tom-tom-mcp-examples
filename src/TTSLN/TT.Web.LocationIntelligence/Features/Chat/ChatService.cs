@@ -1,6 +1,11 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
-using TT.Web.LocationIntelligence.Options;
+using TT.Web.LocationIntelligence.Features.Chat.Agents;
+using TT.Web.LocationIntelligence.Features.Chat.Contracts;
+using TT.Web.LocationIntelligence.Features.Chat.Models;
+using TT.Web.LocationIntelligence.Features.Chat.Persistence;
+using TT.Web.LocationIntelligence.Features.Chat.Realtime;
+using TT.Web.LocationIntelligence.Options.Chat;
 
 namespace TT.Web.LocationIntelligence.Features.Chat;
 

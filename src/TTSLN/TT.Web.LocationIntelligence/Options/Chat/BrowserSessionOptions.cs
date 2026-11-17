@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace TT.Web.LocationIntelligence.Options;
+namespace TT.Web.LocationIntelligence.Options.Chat;
 
 public sealed class BrowserSessionOptions
 {
