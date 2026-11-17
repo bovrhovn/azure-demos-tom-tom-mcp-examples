@@ -29,8 +29,12 @@ function render({
 }
 
 describe("session actions and shared sidebar dialogs", () => {
-  it("mounts a single shared rename and delete dialog pair regardless of session count", () => {
-    render({
+  it("mounts a single shared rename and delete dialog pair regardless of session count", async () => {
+    const onRename = vi.fn().mockResolvedValue({ id: "session-2", title: "Den Haag" });
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    const wrapper = render({
+      onRename,
+      onDelete,
       sessions: [
         session,
         { id: "session-2", title: "Rotterdam", updatedAt: "2026-01-01T11:00:00Z" },
@@ -38,6 +42,19 @@ describe("session actions and shared sidebar dialogs", () => {
       ]
     });
     expect(document.querySelectorAll("dialog")).toHaveLength(2);
+
+    await wrapper.get('[aria-label="Edit Rotterdam"]').trigger("click");
+    expect(modal().get("input").element.value).toBe("Rotterdam");
+    await modal().get("input").setValue("Den Haag");
+    await modal().get("form").trigger("submit");
+    await flushPromises();
+    expect(onRename).toHaveBeenCalledExactlyOnceWith("session-2", "Den Haag");
+
+    await wrapper.get('[aria-label="Delete Utrecht"]').trigger("click");
+    expect(modal().text()).toContain("Utrecht");
+    await modal().get("form").trigger("submit");
+    await flushPromises();
+    expect(onDelete).toHaveBeenCalledExactlyOnceWith("session-3");
   });
 
   it("edits via a prefilled modal and passes the trimmed title", async () => {

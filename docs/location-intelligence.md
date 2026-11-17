@@ -3,7 +3,7 @@
 [Documentation index](README.md) | [Repository overview](../README.md)
 
 `src\TTSLN\TT.Web.LocationIntelligence` is an ASP.NET Core 10 application with a
-TomTom-inspired Vue workspace, Font Awesome icons, Cosmos DB conversations, and
+TomTom-inspired Vue 3 workspace, inline SVG icons, Cosmos DB conversations, and
 SignalR notifications. It reuses the console sample's Microsoft Agent Framework,
 Foundry project endpoint, and remote TomTom Maps MCP integration.
 
@@ -92,6 +92,7 @@ automatically mapped into the web application's options.
 | `Agent:McpEndpoint` | Default `https://mcp.tomtom.com/maps?apps=false`. |
 | `Agent:Instructions` | Server-managed assistant instructions. |
 | `Chat:MaxMessageLength` | User message limit, default/max 8,000 characters. |
+| `Chat:MaxTitleLength` | Conversation title limit, default 120, supported range 1-200 characters. |
 | `Chat:MaxTurns` | Conversation bound, default/max 40 turns. Start a new conversation when full. |
 | `Chat:ReplyTimeoutSeconds` | Model/tool timeout, default 180, supported range 30-600 seconds. |
 | `Chat:PageSize` | Session listing page size, default 30, maximum 100. |
@@ -133,7 +134,7 @@ register a hosted Foundry agent or provision Azure resources.
 The repository-root `containers\LocationIntelligence.Dockerfile` has a Node build
 stage, a .NET publish stage, a non-root production image, and a separate
 development target containing Azure CLI. The production image does not include
-the SDK, npm, or Azure CLI. Fonts, icons, Vue, and SignalR are bundled locally.
+the SDK, npm, or Azure CLI. Fonts, inline SVG icons, Vue, and SignalR are bundled locally.
 
 For a fresh local stack, optionally export the web settings into your current
 shell and run:
@@ -224,10 +225,20 @@ reply timeout; generation is request-driven, not a durable background queue.
 
 ## Architecture and API reference
 
-The Razor page is only the document shell. `Client\ChatApp.vue` owns client
-operations; `Client\api.js` centralizes same-origin JSON fetches, CSRF headers,
-and Problem Details handling. All browser data operations call minimal APIs;
-SignalR carries only conversation-change notifications.
+`Pages\Index.cshtml` renders the document shell (`Cache-Control: no-store`),
+embeds serialized `RuntimeResponse` bootstrap JSON in `<script id="tt-runtime" type="application/json">`,
+and loads `~/dist/app.js` alongside `~/dist/app.css` from `_Layout.cshtml`. Vite
+emits stable `app.js` and `app.css` entry files plus hashed vendor chunks
+(`vendor-vue`, `vendor-signalr`, `vendor-markdown`). `Client\ChatApp.vue`
+composes a modular Vue 3 workspace across `Client\services\` (`httpClient.js`—re-exported
+by `Client\api.js` as `createApi`—`runtimeApi.js`, and `sessionsApi.js`),
+`Client\composables\` (`useRuntimeConfig.js`, `useChatWorkspace.js`,
+`useChatRealtime.js`, `useLeaseClock.js`, and `usePreferences.js`), and
+`Client\components\` (including `AppIcon.vue` inline SVG icons instead of Font
+Awesome webfonts). All browser data operations call minimal APIs, errors return
+sanitized RFC 9457 `ProblemDetails` with `code` and `traceId` extensions
+(`httpClient.js` refreshes `/api/runtime` and retries once on `400`
+`csrf_invalid`), and SignalR carries only conversation notifications.
 
 | Feature | Location |
 |---|---|
@@ -236,22 +247,27 @@ SignalR carries only conversation-change notifications.
 | Configuration types (one per file) | `Options` |
 | DTOs, anonymous browser sessions, persistence, turn orchestration, Foundry/MCP and hub | `Features\Chat` |
 | Sanitized errors, runtime information and readiness | `Features\Operations` |
-| UI, styles and client tests | `Client` |
+| Modular Vue 3 UI (`services\`, `composables\`, `components\`), inline SVG icons, styles and client tests | `Client` |
 | MSTest unit/API/emulator tests | `..\TT.Web.LocationIntelligence.Tests` |
 
 | Endpoint | Contract |
 |---|---|
-| `GET /api/runtime` | Anonymous safe database/environment/model information and CSRF token. Never returns credentials. |
-| `GET /api/sessions/?continuationToken=...` | Browser-scoped summaries and Cosmos continuation token; message content is excluded. |
-| `POST /api/sessions/` | JSON `{ "title": "Amsterdam trip" }`; requires `X-CSRF-TOKEN` plus the verification cookie. |
-| `GET /api/sessions/{id}` | Browser-scoped conversation and saved messages; another browser's conversation ID returns 404. |
-| `POST /api/sessions/{id}/messages` | JSON `{ "requestId": "<new-guid>", "content": "Your question" }`; requires CSRF verification. |
-| `/hubs/chat` | Anonymous SignalR endpoint; joins the browser session's notification group. |
+| `GET /` | Razor shell (`Cache-Control: no-store`) with inline `#tt-runtime` `RuntimeResponse` JSON (`maxMessageLength`, `maxTitleLength`, `maxTurns`, `antiforgeryHeaderName`, `csrfToken`, `endpoints`). |
+| `GET /api/runtime` | Anonymous typed `RuntimeResponse` (`Cache-Control: no-store`) for fallback and CSRF refresh (`endpoints`: `/api/runtime`, `/api/sessions`, `/hubs/chat`). Never returns credentials. |
+| `GET /api/sessions?continuationToken=...` | Browser-scoped summaries and Cosmos continuation token; message content is excluded. |
+| `POST /api/sessions` | JSON `{ "title": "Amsterdam trip" }` (optional, defaults to `"New exploration"`, bounded by `Chat:MaxTitleLength`); requires CSRF verification and returns `201 Created` with an opaque `ETag`. |
+| `GET /api/sessions/{id}` | Browser-scoped conversation (`{id:guid}`) and saved messages with `Cache-Control: private, no-cache` and an opaque `ETag`; returns `304 Not Modified` when `If-None-Match` matches, or `404` for unknown/other-browser IDs. |
+| `PUT /api/sessions/{id}` | JSON `{ "title": "Updated title" }` (`1`–`Chat:MaxTitleLength` characters); requires CSRF verification, rejects edits with `409` (`session_busy`) during an active reply, and returns `200 OK` with an updated `ETag`. |
+| `DELETE /api/sessions/{id}` | Permanently deletes a browser-owned conversation when not busy (`409` `session_busy` otherwise); requires CSRF verification and returns `204 No Content`. |
+| `POST /api/sessions/{id}/messages` | JSON `{ "requestId": "<new-guid>", "content": "Your question" }`; requires CSRF verification and returns `200 OK` with an updated `ETag`. |
+| `/hubs/chat` | Anonymous SignalR endpoint; joins the browser session's notification group and emits `ConversationChanged(sessionId, updatedAt)` and `ConversationDeleted(sessionId)`. |
 | `GET /health` | Anonymous process liveness, independent of Cosmos. |
 | `GET /health/ready` | Anonymous Cosmos connectivity/readiness; 503 when unavailable. |
 
 Sessions embed bounded messages so each turn-state change is one atomic Cosmos
-item replacement. ETags reject stale writes. A timed lease serializes agent
+item replacement. Cosmos ETags reject stale storage writes (`409`
+`concurrency_conflict`), while HTTP session responses expose only a derived,
+opaque SHA-256 `ETag` (`SessionETag`) rather than raw storage metadata. A timed lease serializes agent
 replies; an interrupted lease expires so a later send can recover. Requests
 with the same ID do not invoke the model twice. User messages and a pending
 assistant entry are saved before model execution, then replaced with the
@@ -263,7 +279,7 @@ The implementation limits document size to 1.8 MB, with reply headroom and
 JSON escaping accounted for, below Cosmos DB's 2 MB item limit. Replies are
 bounded to 16,000 characters. Start a new conversation once it reaches either
 the turn or size limit. There is no unbounded message array, automatic retention
-policy, deletion API, or full conversation export.
+policy, or full conversation export.
 
 Structured `ILogger` events include session IDs, deployment and token counts,
 not intentional prompt/reply logging. Application Insights receives logs when

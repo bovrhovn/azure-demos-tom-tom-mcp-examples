@@ -2,7 +2,7 @@ import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { DOMWrapper, flushPromises, mount } from "@vue/test-utils";
 import ChatApp from "../ChatApp.vue";
 
-const realtime = vi.hoisted(() => ({ handlers: {}, reconnected: null }));
+const realtime = vi.hoisted(() => ({ handlers: {}, reconnected: null, startCalls: 0, startImpl: null }));
 vi.mock("@microsoft/signalr", () => ({
   LogLevel: { Warning: 3 },
   HubConnectionBuilder: class {
@@ -15,7 +15,10 @@ vi.mock("@microsoft/signalr", () => ({
         onreconnecting() {},
         onclose() {},
         onreconnected: (handler) => { realtime.reconnected = handler; },
-        start: async () => {},
+        start: async () => {
+          realtime.startCalls++;
+          if (realtime.startImpl) await realtime.startImpl();
+        },
         stop: async () => {}
       };
     }
@@ -30,6 +33,8 @@ beforeEach(() => {
   vi.stubGlobal("localStorage", { getItem: vi.fn(() => null), setItem: vi.fn() });
   realtime.handlers = {};
   realtime.reconnected = null;
+  realtime.startCalls = 0;
+  realtime.startImpl = null;
   Element.prototype.scrollTo = vi.fn();
   stored = {
     id: "one", title: "Amsterdam", createdAt: "2026-01-01T10:00:00Z",
@@ -129,7 +134,7 @@ it("reconciles deletion missed while realtime was disconnected", async () => {
   expect(wrapper.find('[role="alert"]').exists()).toBe(false);
 });
 
-it("hydrates from embedded #tt-runtime without fetching /api/runtime and skips duplicate GETs on send and matching SignalR timestamps", async () => {
+it("hydrates from embedded #tt-runtime without fetching /api/runtime, starts SignalR in parallel, and skips duplicate GETs on send and matching SignalR timestamps", async () => {
   const script = document.createElement("script");
   script.id = "tt-runtime";
   script.type = "application/json";
@@ -144,7 +149,26 @@ it("hydrates from embedded #tt-runtime without fetching /api/runtime and skips d
   });
   document.body.appendChild(script);
 
+  let resolveSessionsList;
+  const baseFetcher = fetcher.getMockImplementation();
+  fetcher.mockImplementation((url, request = {}) => {
+    if (url === "/api/sessions" && (request.method ?? "GET") === "GET" && !resolveSessionsList) {
+      return new Promise((resolve) => {
+        resolveSessionsList = () => resolve(Response.json({ items: [stored], continuationToken: null }));
+      });
+    }
+    return baseFetcher(url, request);
+  });
+
   const wrapper = mount(ChatApp, { attachTo: document.body });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  // SignalR starts in parallel while GET /api/sessions is still in-flight.
+  expect(realtime.startCalls).toBe(1);
+  expect(fetcher.mock.calls.some(([url]) => url === "/api/runtime")).toBe(false);
+
+  resolveSessionsList();
   await flushPromises();
 
   expect(fetcher.mock.calls.some(([url]) => url === "/api/runtime")).toBe(false);
@@ -156,17 +180,123 @@ it("hydrates from embedded #tt-runtime without fetching /api/runtime and skips d
   await flushPromises();
   expect(fetcher.mock.calls.filter(([url, req]) => url === path && (req?.method ?? "GET") === "GET")).toHaveLength(1);
 
-  // IME composition Enter must not submit.
-  await wrapper.get("textarea").setValue("Traffic near Utrecht");
-  await wrapper.get("textarea").trigger("keydown.enter", { isComposing: true });
+  // IME composition Enter (both isComposing and keyCode 229) must not submit.
+  const textarea = wrapper.get("textarea");
+  await textarea.setValue("Traffic near Utrecht");
+  textarea.element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true }));
+  textarea.element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 229, which: 229, bubbles: true, cancelable: true }));
+  await flushPromises();
   expect(fetcher.mock.calls.some(([url]) => url === `${path}/messages`)).toBe(false);
 
-  // Non-IME Enter sends once and applies response directly without a trailing refresh GET.
-  await wrapper.get("textarea").trigger("keydown.enter");
+  // Non-IME Enter via the identical KeyboardEvent path sends once and applies response directly without a trailing refresh GET.
+  textarea.element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
   await flushPromises();
   expect(fetcher.mock.calls.filter(([url]) => url === `${path}/messages`)).toHaveLength(1);
   expect(fetcher.mock.calls.filter(([url, req]) => url === path && (req?.method ?? "GET") === "GET")).toHaveLength(1);
   expect(wrapper.findAll(".message-row")).toHaveLength(4);
+
+  // Trailing SignalR ConversationChanged for the already-applied POST timestamp (or older) is skipped.
+  await realtime.handlers.ConversationChanged("one", "2026-01-03T10:00:00Z");
+  await realtime.handlers.ConversationChanged("one", "2026-01-02T10:00:00Z");
+  await flushPromises();
+  expect(fetcher.mock.calls.filter(([url, req]) => url === path && (req?.method ?? "GET") === "GET")).toHaveLength(1);
+});
+
+it("reconciles persisted state via GET without resending POST when send() fails", async () => {
+  const baseFetcher = fetcher.getMockImplementation();
+  fetcher.mockImplementation(async (url, request = {}) => {
+    if (url === `${path}/messages` && request.method === "POST") {
+      const body = JSON.parse(request.body);
+      stored = {
+        ...stored,
+        updatedAt: "2026-01-04T10:00:00Z",
+        messages: [
+          ...stored.messages,
+          { id: body.requestId, role: "user", status: "completed", content: body.content, createdAt: "2026-01-04T10:00:00Z" },
+          { id: `${body.requestId}-agent`, role: "assistant", status: "failed", content: "The agent could not complete this reply.", createdAt: "2026-01-04T10:00:00Z" }
+        ]
+      };
+      return Response.json(
+        { title: "The agent is unavailable or timed out. Your conversation has been saved.", code: "agent_unavailable" },
+        { status: 502 }
+      );
+    }
+    return baseFetcher(url, request);
+  });
+
+  const wrapper = mount(ChatApp, { attachTo: document.body });
+  await flushPromises();
+  const initialGets = fetcher.mock.calls.filter(([url, req]) => url === path && (req?.method ?? "GET") === "GET").length;
+  expect(initialGets).toBe(1);
+
+  await wrapper.get("textarea").setValue("Find EV chargers in Eindhoven");
+  await wrapper.get("form.composer").trigger("submit");
+  await flushPromises();
+
+  expect(fetcher.mock.calls.filter(([url, req]) => url === `${path}/messages` && req?.method === "POST")).toHaveLength(1);
+  expect(fetcher.mock.calls.filter(([url, req]) => url === path && (req?.method ?? "GET") === "GET")).toHaveLength(2);
+  expect(wrapper.get('[role="alert"]').text()).toContain("The agent is unavailable or timed out.");
+  expect(wrapper.text()).toContain("Find EV chargers in Eindhoven");
+  expect(wrapper.text()).toContain("Reply failed");
+});
+
+it("aborts the superseded in-flight request when rapid selectSession calls occur", async () => {
+  const sessionsById = {
+    one: { ...stored, id: "one", title: "Amsterdam" },
+    two: { ...stored, id: "two", title: "Rotterdam" },
+    three: { ...stored, id: "three", title: "Utrecht" }
+  };
+  let twoSignal = null;
+  let settleTwo;
+
+  fetcher.mockImplementation((url, request = {}) => {
+    const method = request.method ?? "GET";
+    if (url === "/api/runtime") {
+      return Promise.resolve(Response.json({
+        csrfToken: "token", maxTitleLength: 120, maxMessageLength: 4000, maxTurns: 40,
+        agentConfigured: true, environment: "Test"
+      }));
+    }
+    if (url === "/api/sessions" && method === "GET") {
+      return Promise.resolve(Response.json({
+        items: Object.values(sessionsById).map(({ id, title, updatedAt }) => ({ id, title, updatedAt })),
+        continuationToken: null
+      }));
+    }
+    if (url === "/api/sessions/two" && method === "GET") {
+      twoSignal = request.signal;
+      return new Promise((resolve, reject) => {
+        settleTwo = () => {
+          const abortErr = new DOMException("The operation was aborted.", "AbortError");
+          reject(abortErr);
+        };
+      });
+    }
+    const match = url.match(/^\/api\/sessions\/(\w+)$/);
+    if (match && method === "GET") {
+      const target = sessionsById[match[1]];
+      return Promise.resolve(Response.json(target, { headers: { ETag: `"etag-${target.id}"` } }));
+    }
+    throw new Error(`Unexpected request: ${method} ${url}`);
+  });
+
+  const wrapper = mount(ChatApp, { attachTo: document.body });
+  await flushPromises();
+  expect(wrapper.get("h1").text()).toBe("Amsterdam");
+
+  const sessionButtons = wrapper.findAll(".session-row > button.session");
+  await sessionButtons[1].trigger("click");
+  expect(twoSignal).toBeInstanceOf(AbortSignal);
+  expect(twoSignal.aborted).toBe(false);
+
+  await sessionButtons[2].trigger("click");
+  expect(twoSignal.aborted).toBe(true);
+
+  settleTwo();
+  await flushPromises();
+
+  expect(wrapper.get("h1").text()).toBe("Utrecht");
+  expect(wrapper.find('[role="alert"]').exists()).toBe(false);
 });
 
 it("disables the composer with a clear notice when the conversation reaches maxTurns", async () => {
@@ -187,5 +317,9 @@ it("disables the composer with a clear notice when the conversation reaches maxT
   await flushPromises();
 
   expect(wrapper.get("textarea").element.disabled).toBe(true);
+  expect(wrapper.get('button[aria-label="Send message"]').element.disabled).toBe(true);
   expect(wrapper.get(".composer-notice").text()).toContain("1-turn limit");
+  await wrapper.get("form.composer").trigger("submit");
+  await flushPromises();
+  expect(fetcher.mock.calls.some(([url]) => url === `${path}/messages`)).toBe(false);
 });

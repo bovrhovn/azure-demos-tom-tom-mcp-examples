@@ -68,7 +68,9 @@ public sealed class ChatServiceTests
             .ThrowsAsync(new HttpRequestException("private upstream error"));
 
         var action = () => Service().SendAsync("owner", session.Id, new(Guid.NewGuid(), "Find a place."), default);
-        (await action.Should().ThrowAsync<ChatException>()).Which.StatusCode.Should().Be(502);
+        var failure = (await action.Should().ThrowAsync<ChatException>()).Which;
+        failure.StatusCode.Should().Be(502);
+        failure.Code.Should().Be("agent_unavailable");
         var saved = await store.GetAsync("owner", session.Id, default);
 
         saved!.Messages.Should().HaveCount(2);
@@ -91,11 +93,17 @@ public sealed class ChatServiceTests
         try
         {
             var second = () => service.SendAsync("owner", session.Id, new(Guid.NewGuid(), "Second"), default);
-            (await second.Should().ThrowAsync<ChatException>()).Which.StatusCode.Should().Be(409);
+            var secondException = (await second.Should().ThrowAsync<ChatException>()).Which;
+            secondException.StatusCode.Should().Be(409);
+            secondException.Code.Should().Be("session_busy");
             var rename = () => service.RenameAsync("owner", session.Id, new("Changed"), default);
-            (await rename.Should().ThrowAsync<ChatException>()).Which.StatusCode.Should().Be(409);
+            var renameException = (await rename.Should().ThrowAsync<ChatException>()).Which;
+            renameException.StatusCode.Should().Be(409);
+            renameException.Code.Should().Be("session_busy");
             var delete = () => service.DeleteAsync("owner", session.Id, default);
-            (await delete.Should().ThrowAsync<ChatException>()).Which.StatusCode.Should().Be(409);
+            var deleteException = (await delete.Should().ThrowAsync<ChatException>()).Which;
+            deleteException.StatusCode.Should().Be(409);
+            deleteException.Code.Should().Be("session_busy");
         }
         finally { release.SetResult(new("Answer", "model", null, null)); }
         await first;
@@ -207,7 +215,27 @@ public sealed class ChatServiceTests
         };
         await store.ReplaceAsync(large, default);
         var action = () => Service().SendAsync("owner", session.Id, new(Guid.NewGuid(), "One more"), default);
-        (await action.Should().ThrowAsync<ChatException>()).Which.StatusCode.Should().Be(400);
+        var fullException = (await action.Should().ThrowAsync<ChatException>()).Which;
+        fullException.StatusCode.Should().Be(400);
+        fullException.Code.Should().Be("session_full");
         responder.VerifyNoOtherCalls();
+    }
+
+    [TestMethod]
+    public async Task MaxTurnsLimitRejectsNewTurnWithSessionFullCode()
+    {
+        var session = await CreateSession();
+        responder.Setup(provider => provider.ReplyAsync(It.IsAny<IReadOnlyList<ChatMessage>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AgentReply("First reply", "model", 5, 5));
+        var service = Service(new() { MaxTurns = 1 });
+
+        await service.SendAsync("owner", session.Id, new(Guid.NewGuid(), "Turn one"), default);
+        var overTurns = () => service.SendAsync("owner", session.Id, new(Guid.NewGuid(), "Turn two"), default);
+
+        var exception = (await overTurns.Should().ThrowAsync<ChatException>()).Which;
+        exception.StatusCode.Should().Be(400);
+        exception.Code.Should().Be("session_full");
+        responder.Verify(provider => provider.ReplyAsync(It.IsAny<IReadOnlyList<ChatMessage>>(),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 }

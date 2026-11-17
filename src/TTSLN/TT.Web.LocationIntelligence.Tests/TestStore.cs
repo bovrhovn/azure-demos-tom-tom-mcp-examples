@@ -25,6 +25,12 @@ internal sealed class TestStore : IChatStore
             return Task.FromResult(sessions.TryGetValue((ownerId, id), out var session) ? Copy(session) : null);
     }
 
+    public ChatSession? FindById(string id)
+    {
+        lock (gate)
+            return sessions.Values.FirstOrDefault(session => session.Id == id) is { } found ? Copy(found) : null;
+    }
+
     public Task<ChatSession> CreateAsync(ChatSession session, CancellationToken cancellationToken)
     {
         lock (gate)

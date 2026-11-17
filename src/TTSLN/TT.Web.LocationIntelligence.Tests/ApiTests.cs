@@ -16,34 +16,48 @@ using Moq;
 using TT.Web.LocationIntelligence.Features.Chat.Agents;
 using TT.Web.LocationIntelligence.Features.Chat.Models;
 using TT.Web.LocationIntelligence.Features.Chat.Persistence;
+using TT.Web.LocationIntelligence.Features.Operations.Contracts;
 
 namespace TT.Web.LocationIntelligence.Tests;
 
 [TestClass]
 public sealed class ApiTests
 {
-    private sealed class AppFactory(bool trustAllProxies = false, string? modelName = null) : WebApplicationFactory<Program>
+    private sealed class AppFactory(
+        bool trustAllProxies = false,
+        string? modelName = null,
+        int? maxTurns = null,
+        int? maxTitleLength = null,
+        Func<IReadOnlyList<ChatMessage>, CancellationToken, Task<AgentReply>>? onReply = null) : WebApplicationFactory<Program>
     {
         public TestStore Store { get; } = new();
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment("Production");
-            builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
-                new Dictionary<string, string?>
+            builder.ConfigureAppConfiguration((_, configuration) =>
+            {
+                var settings = new Dictionary<string, string?>
                 {
                     ["Cosmos:Endpoint"] = "https://tests.documents.azure.com",
                     ["Cosmos:UseEmulator"] = "false",
                     ["ReverseProxy:TrustAllProxies"] = trustAllProxies.ToString(),
                     ["BrowserSession:CookieName"] = "test-browser-session",
                     ["Agent:Model"] = modelName ?? ""
-                }));
+                };
+                if (maxTurns is not null) settings["Chat:MaxTurns"] = maxTurns.Value.ToString();
+                if (maxTitleLength is not null) settings["Chat:MaxTitleLength"] = maxTitleLength.Value.ToString();
+                configuration.AddInMemoryCollection(settings);
+            });
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<IChatStore>();
                 services.AddSingleton<IChatStore>(Store);
                 var responder = new Mock<IChatResponder>();
                 responder.Setup(provider => provider.ReplyAsync(It.IsAny<IReadOnlyList<ChatMessage>>(),
-                    It.IsAny<CancellationToken>())).ReturnsAsync(new AgentReply("Amsterdam", "test-model", 12, 4));
+                    It.IsAny<CancellationToken>())).Returns((IReadOnlyList<ChatMessage> history, CancellationToken ct) =>
+                        onReply is not null
+                            ? onReply(history, ct)
+                            : Task.FromResult(new AgentReply("Amsterdam", "test-model", 12, 4)));
                 services.RemoveAll<IChatResponder>();
                 services.AddSingleton(responder.Object);
             });
@@ -133,8 +147,9 @@ public sealed class ApiTests
         if (title == "over-limit") title = new string('x', runtime.GetProperty("maxTitleLength").GetInt32() + 1);
         var response = await client.PutAsJsonAsync($"/api/sessions/{id}", new { title });
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("title").GetString()
-            .Should().Contain("Supply a title");
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        problem.GetProperty("title").GetString().Should().Contain("Supply a title");
+        problem.GetProperty("code").GetString().Should().Be("invalid_title");
         (await client.GetFromJsonAsync<JsonElement>($"/api/sessions/{id}"))
             .GetProperty("title").GetString().Should().Be("Keep me");
     }
@@ -148,24 +163,35 @@ public sealed class ApiTests
         var created = await alice.PostAsJsonAsync("/api/sessions/", new { title = "Private" });
         var session = await created.Content.ReadFromJsonAsync<JsonElement>();
         var id = session.GetProperty("id").GetString();
-        alice.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");
-        foreach (var method in new[] { HttpMethod.Put, HttpMethod.Delete })
+        foreach (var badToken in new string?[] { null, "tampered-csrf-token" })
         {
-            using var request = new HttpRequestMessage(method, $"/api/sessions/{id}")
+            alice.DefaultRequestHeaders.Remove("X-CSRF-TOKEN");
+            if (badToken is not null)
+                alice.DefaultRequestHeaders.Add("X-CSRF-TOKEN", badToken);
+
+            foreach (var method in new[] { HttpMethod.Put, HttpMethod.Delete })
             {
-                Content = method == HttpMethod.Put ? JsonContent.Create(new { title = "Unsafe" }) : null
-            };
-            var response = await alice.SendAsync(request);
-            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-            (await response.Content.ReadAsStringAsync()).Should().Contain("verification token");
+                using var request = new HttpRequestMessage(method, $"/api/sessions/{id}")
+                {
+                    Content = method == HttpMethod.Put ? JsonContent.Create(new { title = "Unsafe" }) : null
+                };
+                var response = await alice.SendAsync(request);
+                response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+                var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+                problem.GetProperty("code").GetString().Should().Be("csrf_invalid");
+            }
         }
         using var bob = factory.CreateClient();
         await Runtime(bob);
         foreach (var target in new[] { id, Guid.NewGuid().ToString("N") })
         {
-            (await bob.PutAsJsonAsync($"/api/sessions/{target}", new { title = "Foreign" }))
-                .StatusCode.Should().Be(HttpStatusCode.NotFound);
-            (await bob.DeleteAsync($"/api/sessions/{target}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+            var putMissing = await bob.PutAsJsonAsync($"/api/sessions/{target}", new { title = "Foreign" });
+            putMissing.StatusCode.Should().Be(HttpStatusCode.NotFound);
+            (await putMissing.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString().Should().Be("session_not_found");
+
+            var deleteMissing = await bob.DeleteAsync($"/api/sessions/{target}");
+            deleteMissing.StatusCode.Should().Be(HttpStatusCode.NotFound);
+            (await deleteMissing.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString().Should().Be("session_not_found");
         }
         (await alice.GetFromJsonAsync<JsonElement>($"/api/sessions/{id}"))
             .GetProperty("title").GetString().Should().Be("Private");
@@ -180,7 +206,9 @@ public sealed class ApiTests
         sessions.GetProperty("items").GetArrayLength().Should().Be(0);
         var response = await anonymous.PostAsJsonAsync("/api/sessions/", new { title = "Unsafe" });
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await response.Content.ReadAsStringAsync()).Should().Contain("verification token");
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        problem.GetProperty("code").GetString().Should().Be("csrf_invalid");
+        problem.GetProperty("title").GetString().Should().Contain("verification token");
     }
 
     [TestMethod]
@@ -296,38 +324,79 @@ public sealed class ApiTests
     [TestMethod]
     public async Task IndexBootstrapEscapesScriptJsonAndSessionsSupportCanonicalPathsETagsAndProblemCodes()
     {
-        using var factory = new AppFactory(modelName: "gpt-4o</script><script>alert(1)");
+        using var factory = new AppFactory(
+            modelName: "gpt-4o</script><script>alert(1)</script><!--",
+            maxTurns: 3,
+            maxTitleLength: 24);
         using var client = factory.CreateClient();
 
         using var pageResponse = await client.GetAsync("/");
         pageResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         pageResponse.Headers.CacheControl!.NoStore.Should().BeTrue();
         var html = await pageResponse.Content.ReadAsStringAsync();
-        html.Should().NotContain("</script><script>alert(1)");
+        html.Should().NotContain("</script><script>");
 
         const string marker = "<script id=\"tt-runtime\" type=\"application/json\">";
         var start = html.IndexOf(marker, StringComparison.Ordinal);
         start.Should().BeGreaterThanOrEqualTo(0);
         var jsonStart = start + marker.Length;
         var jsonEnd = html.IndexOf("</script>", jsonStart, StringComparison.Ordinal);
-        var runtime = JsonSerializer.Deserialize<JsonElement>(html[jsonStart..jsonEnd]);
-        runtime.GetProperty("model").GetString().Should().Be("gpt-4o</script><script>alert(1)");
-        runtime.GetProperty("endpoints").GetProperty("sessions").GetString().Should().Be("/api/sessions");
-        var csrfHeader = runtime.GetProperty("antiforgeryHeaderName").GetString()!;
-        var csrfToken = runtime.GetProperty("csrfToken").GetString()!;
+        var rawScriptJson = html[jsonStart..jsonEnd];
+        rawScriptJson.Should().NotContainEquivalentOf("</script");
 
-        using var unauthenticatedPost = await client.PostAsJsonAsync("/api/sessions", new { title = "No token" });
-        unauthenticatedPost.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await unauthenticatedPost.Content.ReadFromJsonAsync<JsonElement>())
+        var runtime = JsonSerializer.Deserialize<RuntimeResponse>(
+            rawScriptJson,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        runtime.Should().NotBeNull();
+        runtime.Model.Should().Be("gpt-4o</script><script>alert(1)</script><!--");
+        runtime.MaxTurns.Should().Be(3);
+        runtime.MaxTitleLength.Should().Be(24);
+        runtime.Endpoints.Runtime.Should().Be("/api/runtime");
+        runtime.Endpoints.Sessions.Should().Be("/api/sessions");
+        runtime.Endpoints.ChatHub.Should().Be("/hubs/chat");
+        var csrfHeader = runtime.AntiforgeryHeaderName;
+        var csrfToken = runtime.CsrfToken;
+        csrfToken.Should().NotBeNullOrWhiteSpace();
+
+        using var missingCsrfPost = await client.PostAsJsonAsync("/api/sessions", new { title = "No token" });
+        missingCsrfPost.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await missingCsrfPost.Content.ReadFromJsonAsync<JsonElement>())
             .GetProperty("code").GetString().Should().Be("csrf_invalid");
 
+        client.DefaultRequestHeaders.Add(csrfHeader, "invalid-csrf-token");
+        using var invalidCsrfPost = await client.PostAsJsonAsync("/api/sessions", new { title = "Bad token" });
+        invalidCsrfPost.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await invalidCsrfPost.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("code").GetString().Should().Be("csrf_invalid");
+
+        client.DefaultRequestHeaders.Remove(csrfHeader);
         client.DefaultRequestHeaders.Add(csrfHeader, csrfToken);
-        using var created = await client.PostAsJsonAsync("/api/sessions", new { title = "Canonical route" });
+
+        foreach (var route in new[] { "/api/sessions", "/api/sessions/" })
+        {
+            using var overlong = await client.PostAsJsonAsync(route, new { title = new string('x', 25) });
+            overlong.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await overlong.Content.ReadFromJsonAsync<JsonElement>())
+                .GetProperty("code").GetString().Should().Be("invalid_title");
+        }
+
+        using var created = await client.PostAsJsonAsync("/api/sessions", new { title = "  Canonical route  " });
         created.StatusCode.Should().Be(HttpStatusCode.Created);
         var initialEtag = created.Headers.ETag?.Tag;
         initialEtag.Should().MatchRegex("^\"[0-9a-f]{16}\"$");
         var createdBody = await created.Content.ReadFromJsonAsync<JsonElement>();
+        createdBody.GetProperty("title").GetString().Should().Be("Canonical route");
         var id = createdBody.GetProperty("id").GetString()!;
+
+        var storedSession = factory.Store.FindById(id)!;
+        storedSession.ETag.Should().NotBeNullOrWhiteSpace();
+        initialEtag.Should().NotContain(storedSession.ETag!);
+
+        using var unconditionalGet = await client.GetAsync($"/api/sessions/{id}");
+        unconditionalGet.StatusCode.Should().Be(HttpStatusCode.OK);
+        unconditionalGet.Headers.ETag?.Tag.Should().Be(initialEtag);
+        var rawGetBody = await unconditionalGet.Content.ReadAsStringAsync();
+        rawGetBody.Should().NotContain(storedSession.ETag!);
 
         var list = await client.GetFromJsonAsync<JsonElement>("/api/sessions");
         list.GetProperty("items").GetArrayLength().Should().Be(1);
@@ -341,18 +410,155 @@ public sealed class ApiTests
 
         using var renamed = await client.PutAsJsonAsync($"/api/sessions/{id}", new { title = "Updated route" });
         renamed.StatusCode.Should().Be(HttpStatusCode.OK);
-        var updatedEtag = renamed.Headers.ETag?.Tag;
-        updatedEtag.Should().MatchRegex("^\"[0-9a-f]{16}\"$").And.NotBe(initialEtag);
+        var etagAfterRename = renamed.Headers.ETag?.Tag;
+        etagAfterRename.Should().MatchRegex("^\"[0-9a-f]{16}\"$").And.NotBe(initialEtag);
 
-        using var staleConditionalGet = new HttpRequestMessage(HttpMethod.Get, $"/api/sessions/{id}");
-        staleConditionalGet.Headers.TryAddWithoutValidation("If-None-Match", initialEtag);
-        using var modified = await client.SendAsync(staleConditionalGet);
-        modified.StatusCode.Should().Be(HttpStatusCode.OK);
-        modified.Headers.ETag?.Tag.Should().Be(updatedEtag);
+        using var getAfterRename = new HttpRequestMessage(HttpMethod.Get, $"/api/sessions/{id}");
+        getAfterRename.Headers.TryAddWithoutValidation("If-None-Match", initialEtag);
+        using var modifiedAfterRename = await client.SendAsync(getAfterRename);
+        modifiedAfterRename.StatusCode.Should().Be(HttpStatusCode.OK);
+        modifiedAfterRename.Headers.ETag?.Tag.Should().Be(etagAfterRename);
+
+        var requestId = Guid.NewGuid();
+        using var sent = await client.PostAsJsonAsync($"/api/sessions/{id}/messages",
+            new { requestId, content = "Where is Utrecht?" });
+        sent.StatusCode.Should().Be(HttpStatusCode.OK);
+        var etagAfterSend = sent.Headers.ETag?.Tag;
+        etagAfterSend.Should().MatchRegex("^\"[0-9a-f]{16}\"$")
+            .And.NotBe(initialEtag)
+            .And.NotBe(etagAfterRename);
+
+        using var getAfterSend = new HttpRequestMessage(HttpMethod.Get, $"/api/sessions/{id}");
+        getAfterSend.Headers.TryAddWithoutValidation("If-None-Match", etagAfterRename);
+        using var modifiedAfterSend = await client.SendAsync(getAfterSend);
+        modifiedAfterSend.StatusCode.Should().Be(HttpStatusCode.OK);
+        modifiedAfterSend.Headers.ETag?.Tag.Should().Be(etagAfterSend);
+
+        using var currentConditionalGet = new HttpRequestMessage(HttpMethod.Get, $"/api/sessions/{id}");
+        currentConditionalGet.Headers.TryAddWithoutValidation("If-None-Match", etagAfterSend);
+        using var notModifiedAfterSend = await client.SendAsync(currentConditionalGet);
+        notModifiedAfterSend.StatusCode.Should().Be(HttpStatusCode.NotModified);
+        (await notModifiedAfterSend.Content.ReadAsStringAsync()).Should().BeEmpty();
 
         using var missing = await client.GetAsync($"/api/sessions/{Guid.NewGuid():N}");
         missing.StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await missing.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("code").GetString().Should().Be("session_not_found");
+    }
+
+    [TestMethod]
+    public async Task CreateSessionEndpointsWithAndWithoutTrailingSlashPublishSignalRNotifications()
+    {
+        using var factory = new AppFactory(maxTitleLength: 20);
+        using var client = factory.CreateClient();
+        using var runtimeResponse = await client.GetAsync("/api/runtime");
+        var cookie = runtimeResponse.Headers.GetValues("Set-Cookie")
+            .Single(value => value.StartsWith("test-browser-session=")).Split(';')[0];
+        await Runtime(client);
+
+        var sockets = factory.Server.CreateWebSocketClient();
+        sockets.ConfigureRequest = request => request.Headers["Cookie"] = cookie;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var socket = await sockets.ConnectAsync(new Uri("ws://localhost/hubs/chat"), timeout.Token);
+        await socket.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes("{\"protocol\":\"json\",\"version\":1}\u001e")),
+            WebSocketMessageType.Text, true, timeout.Token);
+        var buffer = new byte[4096];
+        _ = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), timeout.Token);
+        await socket.SendAsync(
+            new ArraySegment<byte>(Encoding.UTF8.GetBytes("{\"type\":1,\"invocationId\":\"0\",\"target\":\"__sync\",\"arguments\":[]}\u001e")),
+            WebSocketMessageType.Text, true, timeout.Token);
+        _ = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), timeout.Token);
+
+        foreach (var (route, inputTitle, expectedTitle) in new[]
+        {
+            ("/api/sessions", "   ", "New exploration"),
+            ("/api/sessions/", "  Delft canal  ", "Delft canal")
+        })
+        {
+            using var created = await client.PostAsJsonAsync(route, new { title = inputTitle });
+            created.StatusCode.Should().Be(HttpStatusCode.Created);
+            var body = await created.Content.ReadFromJsonAsync<JsonElement>();
+            body.GetProperty("title").GetString().Should().Be(expectedTitle);
+            var sessionId = body.GetProperty("id").GetString()!;
+            var updatedAt = body.GetProperty("updatedAt").GetDateTimeOffset();
+
+            var received = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), timeout.Token);
+            using var notification = JsonDocument.Parse(Encoding.UTF8.GetString(buffer, 0, received.Count).Split('\u001e')[0]);
+            notification.RootElement.GetProperty("target").GetString().Should().Be("ConversationChanged");
+            var args = notification.RootElement.GetProperty("arguments");
+            args[0].GetString().Should().Be(sessionId);
+            args[1].GetDateTimeOffset().Should().Be(updatedAt);
+        }
+
+        socket.Abort();
+    }
+
+    [TestMethod]
+    public async Task ProblemDetailsExposeStructuredErrorCodesForBusyFullConflictAndMissingSessions()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<AgentReply>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var blockNext = true;
+
+        using var factory = new AppFactory(
+            maxTurns: 1,
+            onReply: async (_, _) =>
+            {
+                if (blockNext)
+                {
+                    entered.TrySetResult();
+                    return await release.Task;
+                }
+                return new AgentReply("Done", "test-model", 8, 4);
+            });
+        using var client = factory.CreateClient();
+        await Runtime(client);
+
+        using var created = await client.PostAsJsonAsync("/api/sessions", new { title = "Error codes" });
+        var id = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!;
+        var firstRequestId = Guid.NewGuid();
+
+        var inFlightSend = client.PostAsJsonAsync($"/api/sessions/{id}/messages",
+            new { requestId = firstRequestId, content = "First turn" });
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            using var busySend = await client.PostAsJsonAsync($"/api/sessions/{id}/messages",
+                new { requestId = Guid.NewGuid(), content = "Concurrent turn" });
+            busySend.StatusCode.Should().Be(HttpStatusCode.Conflict);
+            var busyProblem = await busySend.Content.ReadFromJsonAsync<JsonElement>();
+            busyProblem.GetProperty("code").GetString().Should().Be("session_busy");
+            busyProblem.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
+
+            using var busyRename = await client.PutAsJsonAsync($"/api/sessions/{id}", new { title = "While busy" });
+            busyRename.StatusCode.Should().Be(HttpStatusCode.Conflict);
+            (await busyRename.Content.ReadFromJsonAsync<JsonElement>())
+                .GetProperty("code").GetString().Should().Be("session_busy");
+        }
+        finally
+        {
+            blockNext = false;
+            release.TrySetResult(new AgentReply("First reply", "test-model", 10, 5));
+        }
+
+        (await inFlightSend).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var conflict = await client.PostAsJsonAsync($"/api/sessions/{id}/messages",
+            new { requestId = firstRequestId, content = "Different prompt with reused requestId" });
+        conflict.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await conflict.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("code").GetString().Should().Be("request_conflict");
+
+        using var full = await client.PostAsJsonAsync($"/api/sessions/{id}/messages",
+            new { requestId = Guid.NewGuid(), content = "Second turn past maxTurns=1" });
+        full.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await full.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("code").GetString().Should().Be("session_full");
+
+        using var notFound = await client.PostAsJsonAsync($"/api/sessions/{Guid.NewGuid():N}/messages",
+            new { requestId = Guid.NewGuid(), content = "No such session" });
+        notFound.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await notFound.Content.ReadFromJsonAsync<JsonElement>())
             .GetProperty("code").GetString().Should().Be("session_not_found");
     }
 }

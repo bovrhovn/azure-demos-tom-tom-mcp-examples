@@ -1,8 +1,15 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
+import DOMPurify from "dompurify";
+import { marked } from "marked";
 import AgentMessage from "../AgentMessage.vue";
+import { clearFormatMessageCache, copyMessage, formatMessage } from "../messageFormatting.js";
 
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => {
+  clearFormatMessageCache();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 const clipboard = (value) => vi.stubGlobal("navigator", { clipboard: value });
 
 it("renders Markdown, code and tables but strips unsafe agent HTML and links", () => {
@@ -64,4 +71,71 @@ it("shows a clipboard permission error instead of reporting success", async () =
   expect(wrapper.get('[role="alert"]').text()).toContain("Permission denied");
   expect(wrapper.get('[role="status"]').text()).toBe("");
   expect(wrapper.get("button").element.disabled).toBe(false);
+});
+
+it("caches sanitized HTML in an LRU cache and evicts the least-recently-used entry past 200 items", () => {
+  clearFormatMessageCache();
+  const parseSpy = vi.spyOn(marked, "parse");
+  const sanitizeSpy = vi.spyOn(DOMPurify, "sanitize");
+
+  const first = formatMessage("**Delft** <script>alert(1)</script>");
+  const second = formatMessage("**Delft** <script>alert(1)</script>");
+  expect(second).toBe(first);
+  expect(first).toContain("<strong>Delft</strong>");
+  expect(first).not.toContain("<script>");
+  expect(parseSpy).toHaveBeenCalledTimes(1);
+  expect(sanitizeSpy).toHaveBeenCalledTimes(1);
+
+  clearFormatMessageCache();
+  parseSpy.mockClear();
+
+  for (let index = 0; index < 200; index++) {
+    formatMessage(`message-${index}`);
+  }
+  expect(parseSpy).toHaveBeenCalledTimes(200);
+
+  // Touch message-0 so message-1 becomes the least-recently-used entry.
+  formatMessage("message-0");
+  expect(parseSpy).toHaveBeenCalledTimes(200);
+
+  // Inserting a 201st entry evicts message-1 while retaining message-0.
+  formatMessage("message-200");
+  expect(parseSpy).toHaveBeenCalledTimes(201);
+
+  formatMessage("message-0");
+  expect(parseSpy).toHaveBeenCalledTimes(201);
+
+  formatMessage("message-1");
+  expect(parseSpy).toHaveBeenCalledTimes(202);
+});
+
+it("copies preformatted HTML without re-parsing Markdown or re-running DOMPurify", async () => {
+  const write = vi.fn().mockResolvedValue(undefined);
+  clipboard({ write });
+  vi.stubGlobal("ClipboardItem", class {
+    constructor(items) { this.items = items; }
+    static supports() { return true; }
+  });
+
+  const parseSpy = vi.spyOn(marked, "parse");
+  const sanitizeSpy = vi.spyOn(DOMPurify, "sanitize");
+
+  await copyMessage("**Utrecht**", "<p><strong>Utrecht</strong></p>");
+  expect(parseSpy).not.toHaveBeenCalled();
+  expect(sanitizeSpy).not.toHaveBeenCalled();
+
+  const items = write.mock.calls[0][0][0].items;
+  const readBlob = (blob) => new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.readAsText(blob);
+  });
+  expect(await readBlob(items["text/html"])).toBe("<p><strong>Utrecht</strong></p>");
+  expect(await readBlob(items["text/plain"])).toBe("**Utrecht**");
+
+  const wrapper = mount(AgentMessage, { props: { content: "**Haarlem**" } });
+  expect(parseSpy).toHaveBeenCalledTimes(1);
+  await wrapper.get("button").trigger("click");
+  await flushPromises();
+  expect(parseSpy).toHaveBeenCalledTimes(1);
 });

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createApi } from "../api.js";
+import { createSessionsApi } from "../services/sessionsApi.js";
 
 test("POST uses same-origin cookies, JSON and the server-issued CSRF header", async () => {
   const api = createApi(() => "verification", async (path, request) => {
@@ -82,4 +83,86 @@ test("csrf_invalid refreshes CSRF token once and retries with the identical payl
   assert.deepEqual(seen[1].body, payload);
   assert.equal(result.etag, '"etag-2"');
   assert.deepEqual(result.data, { id: "one" });
+});
+
+test("direct api() and sessionsApi.get() send If-None-Match and handle 304 without calling response.json()", async () => {
+  const seenHeaders = [];
+  const api = createApi(() => "", async (path, request) => {
+    seenHeaders.push({ path, ifNoneMatch: request.headers["If-None-Match"] });
+    return {
+      ok: false,
+      status: 304,
+      headers: new Headers({ ETag: '"etag-opaque"' }),
+      json: async () => {
+        throw new SyntaxError("Unexpected end of JSON input");
+      }
+    };
+  });
+
+  const direct = await api("/api/sessions/one", { etag: '"etag-opaque"' });
+  assert.deepEqual(direct, { notModified: true, etag: '"etag-opaque"' });
+
+  const sessionsApi = createSessionsApi(api, () => "/api/sessions/");
+  const sessionResult = await sessionsApi.get("one", { ifNoneMatch: '"etag-opaque"' });
+  assert.deepEqual(sessionResult, { notModified: true, etag: '"etag-opaque"' });
+  assert.deepEqual(seenHeaders, [
+    { path: "/api/sessions/one", ifNoneMatch: '"etag-opaque"' },
+    { path: "/api/sessions/one", ifNoneMatch: '"etag-opaque"' }
+  ]);
+});
+
+test("csrf_invalid does not loop infinitely when the retried request also fails with csrf_invalid", async () => {
+  let refreshCount = 0;
+  let fetchCalls = 0;
+  const api = createApi(
+    () => `token-${refreshCount}`,
+    async () => {
+      fetchCalls++;
+      return Response.json(
+        { title: "Invalid request verification token.", code: "csrf_invalid", traceId: "trace-1" },
+        { status: 400 }
+      );
+    },
+    {
+      onCsrfInvalid: async () => {
+        refreshCount++;
+      }
+    }
+  );
+
+  await assert.rejects(
+    api("/api/sessions", { method: "POST", body: { title: "Loop check" } }),
+    (error) => {
+      assert.equal(error.status, 400);
+      assert.equal(error.code, "csrf_invalid");
+      assert.equal(error.traceId, "trace-1");
+      return true;
+    }
+  );
+  assert.equal(refreshCount, 1);
+  assert.equal(fetchCalls, 2);
+});
+
+test("non-csrf 400 Problem Details errors do not trigger onCsrfInvalid", async () => {
+  let refreshCount = 0;
+  let fetchCalls = 0;
+  const api = createApi(
+    () => "valid-token",
+    async () => {
+      fetchCalls++;
+      return Response.json({ title: "Titles must not exceed 120 characters.", code: "invalid_title" }, { status: 400 });
+    },
+    {
+      onCsrfInvalid: async () => {
+        refreshCount++;
+      }
+    }
+  );
+
+  await assert.rejects(
+    api("/api/sessions", { method: "POST", body: { title: "Too long" } }),
+    (error) => error.status === 400 && error.code === "invalid_title"
+  );
+  assert.equal(refreshCount, 0);
+  assert.equal(fetchCalls, 1);
 });
