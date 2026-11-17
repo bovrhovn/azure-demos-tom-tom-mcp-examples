@@ -41,6 +41,7 @@ it("copies sanitized rich HTML and the complete original plain-text message", as
   expect(await readBlob(items["text/html"])).toContain("<strong>Amsterdam</strong>");
   expect(await readBlob(items["text/html"])).not.toContain("<script>");
   expect(wrapper.get('[role="status"]').text()).toBe("Copied");
+  expect(wrapper.find('svg[data-icon="circle-check"]').exists()).toBe(true);
 });
 
 it("falls back to plain text when rich clipboard is unavailable", async () => {

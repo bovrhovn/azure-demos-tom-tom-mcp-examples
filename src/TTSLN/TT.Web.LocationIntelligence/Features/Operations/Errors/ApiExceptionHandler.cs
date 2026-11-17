@@ -11,16 +11,16 @@ public sealed class ApiExceptionHandler(IProblemDetailsService problems, ILogger
 {
     public async ValueTask<bool> TryHandleAsync(HttpContext context, Exception exception, CancellationToken cancellationToken)
     {
-        var status = exception switch
+        var (status, code) = exception switch
         {
-            ChatException chat => chat.StatusCode,
-            CosmosException cosmos when cosmos.StatusCode == HttpStatusCode.TooManyRequests => 429,
-            CosmosException => 503,
-            BadHttpRequestException => 400,
-            _ => 500
+            ChatException chat => (chat.StatusCode, chat.Code),
+            CosmosException cosmos when cosmos.StatusCode == HttpStatusCode.TooManyRequests => (429, "rate_limited"),
+            CosmosException => (503, "database_unavailable"),
+            BadHttpRequestException => (400, "invalid_request"),
+            _ => (500, "internal_error")
         };
-        logger.LogError(exception, "Request failed with status {StatusCode}; trace {TraceId}",
-            status, context.TraceIdentifier);
+        logger.LogError(exception, "Request failed with status {StatusCode} ({ErrorCode}); trace {TraceId}",
+            status, code, context.TraceIdentifier);
         context.Response.StatusCode = status;
         return await problems.TryWriteAsync(new ProblemDetailsContext
         {
@@ -29,7 +29,11 @@ public sealed class ApiExceptionHandler(IProblemDetailsService problems, ILogger
             {
                 Status = status, Title = exception is ChatException ? exception.Message
                     : status == 503 ? "The database is unavailable." : "The request could not be completed.",
-                Extensions = { ["traceId"] = context.TraceIdentifier }
+                Extensions =
+                {
+                    ["code"] = code,
+                    ["traceId"] = context.TraceIdentifier
+                }
             }
         });
     }

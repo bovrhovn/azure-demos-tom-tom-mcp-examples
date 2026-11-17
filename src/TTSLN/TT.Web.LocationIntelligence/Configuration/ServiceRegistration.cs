@@ -1,10 +1,7 @@
 using System.Text.Json.Serialization;
 using Azure.Core;
 using Azure.Identity;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Options;
-using OpenTelemetry.Metrics;
-using OpenTelemetry.Trace;
 using TT.Web.LocationIntelligence.Features.Chat;
 using TT.Web.LocationIntelligence.Features.Chat.Agents;
 using TT.Web.LocationIntelligence.Features.Chat.Persistence;

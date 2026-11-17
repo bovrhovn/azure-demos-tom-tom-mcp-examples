@@ -5,6 +5,7 @@
 }
 <div id="app"><p>Loading your location intelligence workspace...</p></div>
 <noscript>This workspace requires JavaScript. Enable it to manage conversations.</noscript>
+<script id="tt-runtime" type="application/json">@Html.Raw(Model.RuntimeJson)</script>
 @section Scripts {
     <script type="module" src="~/dist/app.js" asp-append-version="true"></script>
 }

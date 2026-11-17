@@ -1,13 +1,11 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using FluentAssertions;
-using Microsoft.Agents.AI;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.ApplicationInsights.AspNetCore.Extensions;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;

@@ -19,32 +19,39 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   outline: 3px solid #df1b3280; outline-offset: 4px;
 }
 button { color: inherit; }
+.app-icon { width: 1em; height: 1em; display: inline-block; vertical-align: -0.14em; flex-shrink: 0; }
+.app-icon-spin { animation: app-icon-spin .9s linear infinite; }
+@keyframes app-icon-spin { to { transform: rotate(360deg); } }
+.error-page { max-width: 560px; margin: 12vh auto; padding: 32px; border: 1px solid var(--line); border-radius: 14px; }
+.error-page h1 { margin-top: 8px; }
+.error-page p { font-size: 13px; line-height: 1.8; color: var(--muted); }
+.error-page-id { font-size: 11px; }
 .workspace { display: grid; grid-template-columns: 280px minmax(0, 1fr); grid-template-rows: 76px minmax(0, 1fr) 36px; height: 100dvh; }
 .topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 24px; padding: 0 30px; border-bottom: 1px solid var(--line); z-index: 1; background: #fff; }
 .brand { display: flex; align-items: center; gap: 9px; }
-.brand-mark { font-size: 30px; color: var(--red); }
+.brand-mark { font-size: 30px; color: var(--red); display: inline-flex; align-items: center; }
 .wordmark { font-size: 32px; font-weight: 850; letter-spacing: -2px; }
 .brand-dot { color: var(--red); }
 .header-divider { height: 26px; width: 1px; background: #d6d7da; }
 .product-name { display: flex; gap: 14px; align-items: center; font-size: 14px; font-weight: 750; }
 .preview-tag, .emulator-tag { font-size: 9px; letter-spacing: 1.2px; padding: 5px 7px; background: #f0f1f3; color: #63676e; border-radius: 3px; font-weight: 800; }
-.docs-link { margin-left: auto; font-size: 12px; font-weight: 700; }
-.docs-link i { margin-left: 8px; font-size: 10px; }
+.docs-link { margin-left: auto; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; }
+.docs-link :is(i, .app-icon) { margin-left: 8px; font-size: 11px; }
 .icon-button { border: 0; background: transparent; display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 6px; flex-shrink: 0; }
 .icon-button:hover { background: #f0f1f3; }
 .sidebar { background: #f7f8fa; border-right: 1px solid var(--line); padding: 30px 19px 22px; display: flex; flex-direction: column; min-height: 0; }
-.sidebar-heading { display: flex; justify-content: space-between; padding: 0 7px; font-size: 10px; letter-spacing: 1.7px; font-weight: 800; color: #777d86; }
-.sidebar-heading i { font-size: 14px; }
-.new-session { background: var(--red); border: none; border-radius: 7px; color: white; text-align: left; padding: 15px 16px; font-size: 12px; font-weight: 750; margin: 24px 0 32px; box-shadow: 0 5px 10px #df1b3214; }
+.sidebar-heading { display: flex; justify-content: space-between; align-items: center; padding: 0 7px; font-size: 10px; letter-spacing: 1.7px; font-weight: 800; color: #777d86; }
+.sidebar-heading :is(i, .app-icon) { font-size: 14px; }
+.new-session { background: var(--red); border: none; border-radius: 7px; color: white; text-align: left; padding: 15px 16px; font-size: 12px; font-weight: 750; margin: 24px 0 32px; box-shadow: 0 5px 10px #df1b3214; display: flex; align-items: center; }
 .new-session:hover, .primary-button:hover, .send-button:hover { background: #bd1327; }
-.new-session i { margin-right: 10px; }
+.new-session :is(i, .app-icon) { margin-right: 10px; }
 .section-label { padding: 0 7px; font-size: 9px; letter-spacing: 1.4px; font-weight: 800; color: #7c818a; display: flex; justify-content: space-between; margin-bottom: 16px; }
 .sessions { overflow-y: auto; flex: 1; }
 .session-row { display: flex; align-items: center; border: 1px solid transparent; border-radius: 7px; margin-bottom: 7px; }
 .session-row.active { background: #fff; border-color: #e3e5e9; box-shadow: 0 2px 3px #151b2705; }
 .session { display: flex; align-items: center; gap: 10px; border: 0; background: none; text-align: left; min-width: 0; flex: 1; padding: 13px 8px; border-radius: 7px; }
-.session > i { color: #747a84; font-size: 14px; }
-.session-row.active .session > i { color: var(--red); }
+.session > :is(i, .app-icon) { color: #747a84; font-size: 14px; }
+.session-row.active .session > :is(i, .app-icon) { color: var(--red); }
 .session > span { min-width: 0; flex: 1; }
 .session strong { display: block; font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 750; }
 .session small { display: block; font-size: 9px; margin-top: 6px; color: #8a8e95; }
@@ -80,20 +87,24 @@ h1 { margin: 7px 0 0; font-size: 19px; letter-spacing: -.6px; overflow-wrap: any
 .prompt-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 33px; text-align: left; }
 .prompt-card { position: relative; background: #fff; border: 1px solid var(--line); border-radius: 9px; padding: 20px 17px; text-align: left; transition: transform .18s, border-color .18s; }
 .prompt-card:hover { border-color: #df1b3280; transform: translateY(-3px); }
-.prompt-card > i:first-child { color: var(--red); font-size: 18px; display: block; margin-bottom: 15px; }
+.prompt-card > :is(i, .app-icon):first-child { color: var(--red); font-size: 18px; display: block; margin-bottom: 15px; }
 .prompt-card strong { display: block; font-size: 12px; margin-bottom: 8px; }
 .prompt-card > span { display: block; font-size: 10px; color: #80858c; line-height: 1.8; }
-.prompt-card .prompt-arrow { position: absolute; top: 20px; right: 17px; font-size: 9px; color: #959aa1; }
+.prompt-card .prompt-arrow { position: absolute; top: 20px; right: 17px; font-size: 11px; color: #959aa1; }
 .composer-area { padding: 12px 42px 16px; }
 .composer { max-width: 950px; margin: 0 auto; border: 1px solid #dfe1e6; border-radius: 12px; padding: 15px 17px 12px; box-shadow: 0 4px 20px #1d273007; }
 .composer:focus-within { border-color: #b2b6bf; }
+.composer-notice { max-width: 950px; margin: 0 auto 8px; font-size: 10px; color: #896f32; background: #fff9eb; border-radius: 6px; padding: 7px 11px; display: flex; align-items: center; gap: 7px; }
 textarea { width: 100%; resize: none; border: none; outline: none; font-size: 12px; line-height: 1.7; background: transparent; color: var(--ink); }
 textarea:focus-visible { outline: none; }
 textarea::placeholder { color: #969aa2; }
-.composer-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: 7px; }
-.composer-bottom > span { color: #8a8f97; font-size: 9px; }
-.composer-bottom > span i { margin-right: 6px; color: var(--red); }
-.send-button { border: none; width: 34px; height: 34px; border-radius: 7px; background: var(--red); color: white; font-size: 14px; }
+.composer-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: 7px; gap: 12px; }
+.composer-bottom > span { color: #8a8f97; font-size: 9px; display: inline-flex; align-items: center; }
+.composer-bottom > span :is(i, .app-icon) { margin-right: 6px; color: var(--red); }
+.composer-actions { display: flex; align-items: center; gap: 10px; }
+.char-count { font-size: 9px; color: #8a8f97; font-variant-numeric: tabular-nums; }
+.char-count.near-limit { color: var(--red); font-weight: 700; }
+.send-button { border: none; width: 34px; height: 34px; border-radius: 7px; background: var(--red); color: white; font-size: 14px; display: inline-grid; place-items: center; }
 .composer-hint { display: flex; justify-content: space-between; max-width: 950px; margin: 10px auto 0; font-size: 8px; color: #91959d; gap: 10px; }
 .statusbar { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; padding: 0 25px; gap: 15px; background: #fafbfc; border-top: 1px solid var(--line); font-size: 9px; color: #7c818b; }
 .statusbar > span { display: flex; align-items: center; gap: 7px; }
@@ -111,9 +122,9 @@ textarea::placeholder { color: #969aa2; }
 .user .message-label { flex-direction: row-reverse; }
 .user .message-bubble { background: var(--ink); color: white; border-radius: 10px 0 10px 10px; }
 .usage { display: flex; flex-wrap: wrap; gap: 12px; font-size: 8px; color: #8a8f97; padding-top: 9px; }
-.usage i { margin-right: 4px; }
+.usage :is(i, .app-icon) { margin-right: 4px; }
 .thinking { color: #8b7276; font-size: 11px; }
-.thinking i { margin-right: 7px; }
+.thinking :is(i, .app-icon) { margin-right: 7px; }
 .message-bubble.failed { background: #fff3f4; color: #a42a3c; }
 .formatted-message { white-space: normal; }
 .formatted-message > :first-child { margin-top: 0; }
@@ -135,7 +146,7 @@ textarea::placeholder { color: #969aa2; }
 .error-banner > span { flex: 1; }
 .setup-banner { background: #fff9eb; color: #896f32; }
 .loading-state { padding: 80px 0; text-align: center; color: var(--muted); font-size: 12px; }
-.loading-state i { margin-right: 8px; color: var(--red); }
+.loading-state :is(i, .app-icon) { margin-right: 8px; color: var(--red); }
 .options-dialog { border: 1px solid var(--line); border-radius: 14px; width: min(440px, calc(100vw - 32px)); padding: 26px; color: var(--ink); box-shadow: 0 30px 100px #10172233; }
 .options-dialog::backdrop { background: #141c2b65; backdrop-filter: blur(4px); }
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 23px; }
@@ -179,7 +190,7 @@ input[type="checkbox"] { accent-color: var(--red); width: 17px; height: 17px; }
   .sidebar { flex-direction: row; align-items: center; padding: 10px 15px; gap: 12px; border-bottom: 1px solid var(--line); border-right: none; }
   .sidebar-heading, .section-label, .sidebar-note, .sidebar-empty { display: none; }
   .new-session { margin: 0; padding: 12px; font-size: 10px; white-space: nowrap; }
-  .new-session i { margin-right: 4px; }
+  .new-session :is(i, .app-icon) { margin-right: 4px; }
   .sessions { display: flex; gap: 6px; overflow-x: auto; align-items: center; }
   .session-row { width: 215px; flex-shrink: 0; margin: 0; }
   .session { padding: 8px; gap: 7px; }
@@ -194,7 +205,7 @@ input[type="checkbox"] { accent-color: var(--red); width: 17px; height: 17px; }
   .welcome > p { font-size: 10px; }
   .prompt-grid { grid-template-columns: 1fr; gap: 8px; margin-top: 22px; }
   .prompt-card { padding: 14px 36px; }
-  .prompt-card > i:first-child { position: absolute; left: 12px; top: 16px; font-size: 14px; }
+  .prompt-card > :is(i, .app-icon):first-child { position: absolute; left: 12px; top: 16px; font-size: 14px; }
   .prompt-card strong { margin-bottom: 4px; font-size: 11px; }
   .composer-area { padding: 8px 12px 12px; }
   .composer-hint { font-size: 7px; }

@@ -2,62 +2,67 @@ using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http.HttpResults;
 using TT.Web.LocationIntelligence.Features.Chat.Contracts;
 using TT.Web.LocationIntelligence.Features.Chat.Models;
-using TT.Web.LocationIntelligence.Features.Chat.Persistence;
 
 namespace TT.Web.LocationIntelligence.Features.Chat;
 
 /// <summary>Minimal HTTP API for conversations. SignalR is notification-only.</summary>
 public static class ChatEndpoints
 {
+    public const string SessionsPath = "/api/sessions";
+    public const string HubPath = "/hubs/chat";
+
     public static void MapChatFeature(this WebApplication app)
     {
-        var group = app.MapGroup("/api/sessions");
-        group.AddEndpointFilter(async (context, next) =>
+        var group = app.MapGroup(SessionsPath);
+        group.AddEndpointFilter(ValidateCsrfAsync);
+
+        group.MapGet("", async Task<Ok<SessionPage>> (HttpContext context, ChatService service,
+            string? continuationToken, CancellationToken ct) =>
+            TypedResults.Ok(await service.ListAsync(BrowserSessionMiddleware.Owner(context), continuationToken, ct)))
+            .WithName("ListSessions")
+            .WithSummary("List browser-owned conversations")
+            .WithDescription("Returns a content-free continuation page of conversation summaries.")
+            .ProducesProblem(400);
+
+        group.MapPost("", async Task<Created<SessionResponse>> (CreateSessionRequest request,
+            HttpContext context, ChatService service, CancellationToken ct) =>
         {
-            if (!HttpMethods.IsGet(context.HttpContext.Request.Method) &&
-                !HttpMethods.IsHead(context.HttpContext.Request.Method) &&
-                !HttpMethods.IsOptions(context.HttpContext.Request.Method))
-            {
-                try
-                {
-                    await context.HttpContext.RequestServices.GetRequiredService<IAntiforgery>()
-                        .ValidateRequestAsync(context.HttpContext);
-                }
-                catch (AntiforgeryValidationException)
-                {
-                    return Results.Problem(statusCode: 400, title: "Invalid request verification token.");
-                }
-            }
-            return await next(context);
-        });
-        group.MapGet("/", (HttpContext context, IChatStore store, string? continuationToken, CancellationToken ct) =>
-            store.ListAsync(BrowserSessionMiddleware.Owner(context), continuationToken, ct));
-        group.MapPost("/", async (CreateSessionRequest request, HttpContext context, IChatStore store,
-            ILogger<ChatSession> logger, CancellationToken ct) =>
+            var session = await service.CreateAsync(BrowserSessionMiddleware.Owner(context), request.Title, ct);
+            SetETag(context, session);
+            return TypedResults.Created($"{SessionsPath}/{session.Id}", View(session));
+        })
+            .WithName("CreateSession")
+            .WithSummary("Start a new conversation")
+            .WithDescription("Creates an anonymous browser-owned conversation and publishes a realtime notification.")
+            .ProducesProblem(400);
+
+        group.MapGet("/{id:guid}", async Task<Results<Ok<SessionResponse>, StatusCodeHttpResult>> (string id,
+            HttpContext context, ChatService service, CancellationToken ct) =>
         {
-            if (request.Title?.Length > SessionTitleLimits.MaxLength)
-                return Results.Problem(statusCode: 400, title: $"Titles must not exceed {SessionTitleLimits.MaxLength} characters.");
-            var session = await store.CreateAsync(new()
-            {
-                OwnerId = BrowserSessionMiddleware.Owner(context),
-                Title = string.IsNullOrWhiteSpace(request.Title) ? "New exploration" : request.Title.Trim()
-            }, ct);
-            logger.LogInformation("Created conversation {SessionId}", session.Id);
-            return Results.Created($"/api/sessions/{session.Id}", View(session));
-        });
-        group.MapGet("/{id:guid}", async (string id, HttpContext context, IChatStore store, CancellationToken ct) =>
-        {
-            var session = await store.GetAsync(BrowserSessionMiddleware.Owner(context), Normalize(id), ct);
-            return session is null ? Results.NotFound() : Results.Ok(View(session));
-        });
+            var session = await service.GetAsync(BrowserSessionMiddleware.Owner(context), Normalize(id), ct);
+            var etag = SetETag(context, session);
+            context.Response.Headers.CacheControl = "private, no-cache";
+            if (SessionETag.Matches(context.Request.Headers.IfNoneMatch, etag))
+                return TypedResults.StatusCode(StatusCodes.Status304NotModified);
+            return TypedResults.Ok(View(session));
+        })
+            .WithName("GetSession")
+            .WithSummary("Get a conversation and its messages")
+            .WithDescription("Returns the conversation when modified or 304 Not Modified when If-None-Match matches.")
+            .ProducesProblem(404);
+
         group.MapPut("/{id:guid}", async Task<Ok<SessionResponse>> (string id, UpdateSessionRequest request,
             HttpContext context, ChatService service, CancellationToken ct) =>
-            TypedResults.Ok(View(await service.RenameAsync(
-                BrowserSessionMiddleware.Owner(context), Normalize(id), request, ct))))
+        {
+            var session = await service.RenameAsync(BrowserSessionMiddleware.Owner(context), Normalize(id), request, ct);
+            SetETag(context, session);
+            return TypedResults.Ok(View(session));
+        })
             .WithName("UpdateSession")
             .WithSummary("Rename a conversation")
             .WithDescription("Updates the browser-owned conversation title when no agent reply is in progress.")
             .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409);
+
         group.MapDelete("/{id:guid}", async Task<NoContent> (string id, HttpContext context,
             ChatService service, CancellationToken ct) =>
         {
@@ -68,9 +73,45 @@ public static class ChatEndpoints
             .WithSummary("Delete a conversation")
             .WithDescription("Permanently deletes the browser-owned conversation and its messages when no agent reply is in progress.")
             .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409);
-        group.MapPost("/{id:guid}/messages", async (string id, SendMessageRequest request,
+
+        group.MapPost("/{id:guid}/messages", async Task<Ok<SessionResponse>> (string id, SendMessageRequest request,
             HttpContext context, ChatService service, CancellationToken ct) =>
-            Results.Ok(View(await service.SendAsync(BrowserSessionMiddleware.Owner(context), Normalize(id), request, ct))));
+        {
+            var session = await service.SendAsync(BrowserSessionMiddleware.Owner(context), Normalize(id), request, ct);
+            SetETag(context, session);
+            return TypedResults.Ok(View(session));
+        })
+            .WithName("SendMessage")
+            .WithSummary("Submit an idempotent conversation turn")
+            .WithDescription("Persists the user message and lease before invoking Foundry, then saves the completed or failed reply.")
+            .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(502).ProducesProblem(503);
+    }
+
+    private static async ValueTask<object?> ValidateCsrfAsync(EndpointFilterInvocationContext context,
+        EndpointFilterDelegate next)
+    {
+        var method = context.HttpContext.Request.Method;
+        if (!HttpMethods.IsGet(method) && !HttpMethods.IsHead(method) && !HttpMethods.IsOptions(method))
+        {
+            try
+            {
+                await context.HttpContext.RequestServices.GetRequiredService<IAntiforgery>()
+                    .ValidateRequestAsync(context.HttpContext);
+            }
+            catch (AntiforgeryValidationException)
+            {
+                throw new ChatException(StatusCodes.Status400BadRequest,
+                    "Invalid request verification token.", "csrf_invalid");
+            }
+        }
+        return await next(context);
+    }
+
+    private static string SetETag(HttpContext context, ChatSession session)
+    {
+        var etag = SessionETag.Compute(session);
+        context.Response.Headers.ETag = etag;
+        return etag;
     }
 
     private static string Normalize(string id) => Guid.Parse(id).ToString("N");

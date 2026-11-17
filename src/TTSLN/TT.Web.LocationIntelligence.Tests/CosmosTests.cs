@@ -4,7 +4,6 @@ using Microsoft.Azure.Cosmos;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using OptionsFactory = Microsoft.Extensions.Options.Options;

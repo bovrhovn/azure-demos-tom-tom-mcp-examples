@@ -16,8 +16,17 @@ export default defineConfig({
       input: "Client/main.js",
       output: {
         entryFileNames: "app.js",
+        chunkFileNames: "chunks/[name]-[hash].js",
         assetFileNames: (asset) => asset.names?.some((name) => name.endsWith(".css"))
-          ? "app.css" : "assets/[name]-[hash][extname]"
+          ? "app.css" : "assets/[name]-[hash][extname]",
+        manualChunks(id) {
+          const normalized = id.replaceAll("\\", "/");
+          if (!normalized.includes("/node_modules/")) return undefined;
+          if (normalized.includes("/@microsoft/signalr/")) return "vendor-signalr";
+          if (normalized.includes("/marked/") || normalized.includes("/dompurify/")) return "vendor-markdown";
+          if (normalized.includes("/vue/") || normalized.includes("/@vue/")) return "vendor-vue";
+          return undefined;
+        }
       }
     }
   },

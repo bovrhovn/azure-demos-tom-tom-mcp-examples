@@ -12,7 +12,6 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 using TT.Web.LocationIntelligence.Features.Chat.Agents;
 using TT.Web.LocationIntelligence.Features.Chat.Models;
@@ -23,7 +22,7 @@ namespace TT.Web.LocationIntelligence.Tests;
 [TestClass]
 public sealed class ApiTests
 {
-    private sealed class AppFactory(bool trustAllProxies = false) : WebApplicationFactory<Program>
+    private sealed class AppFactory(bool trustAllProxies = false, string? modelName = null) : WebApplicationFactory<Program>
     {
         public TestStore Store { get; } = new();
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -35,7 +34,8 @@ public sealed class ApiTests
                     ["Cosmos:Endpoint"] = "https://tests.documents.azure.com",
                     ["Cosmos:UseEmulator"] = "false",
                     ["ReverseProxy:TrustAllProxies"] = trustAllProxies.ToString(),
-                    ["BrowserSession:CookieName"] = "test-browser-session"
+                    ["BrowserSession:CookieName"] = "test-browser-session",
+                    ["Agent:Model"] = modelName ?? ""
                 }));
             builder.ConfigureServices(services =>
             {
@@ -269,6 +269,12 @@ public sealed class ApiTests
         var buffer = new byte[4096];
         var handshake = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), timeout.Token);
         Encoding.UTF8.GetString(buffer, 0, handshake.Count).Should().Be("{}\u001e");
+        // Ensure ChatHub.OnConnectedAsync has finished registering the owner group before publishing HTTP mutations.
+        await socket.SendAsync(
+            new ArraySegment<byte>(Encoding.UTF8.GetBytes("{\"type\":1,\"invocationId\":\"0\",\"target\":\"__sync\",\"arguments\":[]}\u001e")),
+            WebSocketMessageType.Text, true, timeout.Token);
+        var sync = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), timeout.Token);
+        Encoding.UTF8.GetString(buffer, 0, sync.Count).Should().Contain("\"invocationId\":\"0\"");
 
         var created = await client.PostAsJsonAsync("/api/sessions/", new { title = "Realtime exploration" });
         var session = await created.Content.ReadFromJsonAsync<JsonElement>();
@@ -280,7 +286,73 @@ public sealed class ApiTests
         var received = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), timeout.Token);
         using var notification = JsonDocument.Parse(Encoding.UTF8.GetString(buffer, 0, received.Count).Split('\u001e')[0]);
         notification.RootElement.GetProperty("target").GetString().Should().Be("ConversationChanged");
-        notification.RootElement.GetProperty("arguments")[0].GetString().Should().Be(id);
+        var arguments = notification.RootElement.GetProperty("arguments");
+        arguments.GetArrayLength().Should().Be(2);
+        arguments[0].GetString().Should().Be(id);
+        arguments[1].GetDateTimeOffset().Should().BeAfter(DateTimeOffset.MinValue);
         socket.Abort();
+    }
+
+    [TestMethod]
+    public async Task IndexBootstrapEscapesScriptJsonAndSessionsSupportCanonicalPathsETagsAndProblemCodes()
+    {
+        using var factory = new AppFactory(modelName: "gpt-4o</script><script>alert(1)");
+        using var client = factory.CreateClient();
+
+        using var pageResponse = await client.GetAsync("/");
+        pageResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        pageResponse.Headers.CacheControl!.NoStore.Should().BeTrue();
+        var html = await pageResponse.Content.ReadAsStringAsync();
+        html.Should().NotContain("</script><script>alert(1)");
+
+        const string marker = "<script id=\"tt-runtime\" type=\"application/json\">";
+        var start = html.IndexOf(marker, StringComparison.Ordinal);
+        start.Should().BeGreaterThanOrEqualTo(0);
+        var jsonStart = start + marker.Length;
+        var jsonEnd = html.IndexOf("</script>", jsonStart, StringComparison.Ordinal);
+        var runtime = JsonSerializer.Deserialize<JsonElement>(html[jsonStart..jsonEnd]);
+        runtime.GetProperty("model").GetString().Should().Be("gpt-4o</script><script>alert(1)");
+        runtime.GetProperty("endpoints").GetProperty("sessions").GetString().Should().Be("/api/sessions");
+        var csrfHeader = runtime.GetProperty("antiforgeryHeaderName").GetString()!;
+        var csrfToken = runtime.GetProperty("csrfToken").GetString()!;
+
+        using var unauthenticatedPost = await client.PostAsJsonAsync("/api/sessions", new { title = "No token" });
+        unauthenticatedPost.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await unauthenticatedPost.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("code").GetString().Should().Be("csrf_invalid");
+
+        client.DefaultRequestHeaders.Add(csrfHeader, csrfToken);
+        using var created = await client.PostAsJsonAsync("/api/sessions", new { title = "Canonical route" });
+        created.StatusCode.Should().Be(HttpStatusCode.Created);
+        var initialEtag = created.Headers.ETag?.Tag;
+        initialEtag.Should().MatchRegex("^\"[0-9a-f]{16}\"$");
+        var createdBody = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var id = createdBody.GetProperty("id").GetString()!;
+
+        var list = await client.GetFromJsonAsync<JsonElement>("/api/sessions");
+        list.GetProperty("items").GetArrayLength().Should().Be(1);
+
+        using var conditionalGet = new HttpRequestMessage(HttpMethod.Get, $"/api/sessions/{id}");
+        conditionalGet.Headers.TryAddWithoutValidation("If-None-Match", initialEtag);
+        using var notModified = await client.SendAsync(conditionalGet);
+        notModified.StatusCode.Should().Be(HttpStatusCode.NotModified);
+        notModified.Headers.ETag?.Tag.Should().Be(initialEtag);
+        (await notModified.Content.ReadAsStringAsync()).Should().BeEmpty();
+
+        using var renamed = await client.PutAsJsonAsync($"/api/sessions/{id}", new { title = "Updated route" });
+        renamed.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updatedEtag = renamed.Headers.ETag?.Tag;
+        updatedEtag.Should().MatchRegex("^\"[0-9a-f]{16}\"$").And.NotBe(initialEtag);
+
+        using var staleConditionalGet = new HttpRequestMessage(HttpMethod.Get, $"/api/sessions/{id}");
+        staleConditionalGet.Headers.TryAddWithoutValidation("If-None-Match", initialEtag);
+        using var modified = await client.SendAsync(staleConditionalGet);
+        modified.StatusCode.Should().Be(HttpStatusCode.OK);
+        modified.Headers.ETag?.Tag.Should().Be(updatedEtag);
+
+        using var missing = await client.GetAsync($"/api/sessions/{Guid.NewGuid():N}");
+        missing.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await missing.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("code").GetString().Should().Be("session_not_found");
     }
 }

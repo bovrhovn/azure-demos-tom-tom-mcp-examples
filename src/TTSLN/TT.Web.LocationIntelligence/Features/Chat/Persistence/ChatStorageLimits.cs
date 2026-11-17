@@ -15,6 +15,6 @@ public static class ChatStorageLimits
         var bytes = JsonSerializer.SerializeToUtf8Bytes(session,
             new JsonSerializerOptions(JsonSerializerDefaults.Web)).Length;
         if (bytes + (reserveReply ? MaxReplyCharacters * MaxEscapedCharacterBytes : 0) > MaxDocumentBytes)
-            throw new ChatException(400, "This conversation is full. Start a new conversation.");
+            throw new ChatException(400, "This conversation is full. Start a new conversation.", "session_full");
     }
 }

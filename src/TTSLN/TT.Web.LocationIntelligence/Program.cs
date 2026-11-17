@@ -19,7 +19,7 @@ app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false }
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 app.MapChatFeature();
 app.MapOperationsFeature();
-app.MapHub<ChatHub>("/hubs/chat");
+app.MapHub<ChatHub>(ChatEndpoints.HubPath);
 app.MapRazorPages();
 app.Run();
 

@@ -20,7 +20,7 @@ public sealed class FoundryChatResponder(TokenCredential credential, IOptions<Ag
             endpoint.Scheme != "https" || string.IsNullOrWhiteSpace(settings.Model) ||
             string.IsNullOrWhiteSpace(settings.TomTomApiKey))
         {
-            throw new ChatException(503, "Configure the Foundry endpoint, model and TomTom API key on the server.");
+            throw new ChatException(503, "Configure the Foundry endpoint, model and TomTom API key on the server.", "agent_not_configured");
         }
 
         await using var mcp = await McpClient.CreateAsync(new HttpClientTransport(new()
@@ -41,9 +41,9 @@ public sealed class FoundryChatResponder(TokenCredential credential, IOptions<Ag
         var response = await agent.RunAsync(history, cancellationToken: cancellationToken);
         var text = response.ToString();
         if (string.IsNullOrWhiteSpace(text))
-            throw new ChatException(502, "The agent returned an empty reply.");
+            throw new ChatException(502, "The agent returned an empty reply.", "agent_unavailable");
         if (text.Length > ChatStorageLimits.MaxReplyCharacters)
-            throw new ChatException(502, "The agent reply exceeded the conversation storage limit.");
+            throw new ChatException(502, "The agent reply exceeded the conversation storage limit.", "agent_unavailable");
         logger.LogInformation("Agent completed with deployment {Model}; input {InputTokens}, output {OutputTokens}",
             settings.Model, response.Usage?.InputTokenCount, response.Usage?.OutputTokenCount);
         return new(text, settings.Model, response.Usage?.InputTokenCount, response.Usage?.OutputTokenCount);

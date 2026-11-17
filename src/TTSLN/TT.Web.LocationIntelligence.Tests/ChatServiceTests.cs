@@ -2,7 +2,6 @@ using FluentAssertions;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
 using OptionsFactory = Microsoft.Extensions.Options.Options;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 using TT.Web.LocationIntelligence.Features.Chat;
 using TT.Web.LocationIntelligence.Features.Chat.Agents;
@@ -116,9 +115,47 @@ public sealed class ChatServiceTests
         await service.DeleteAsync("owner", session.Id, default);
         (await store.GetAsync("owner", session.Id, default)).Should().BeNull();
         notifications.Verify(proxy => proxy.SendCoreAsync("ConversationChanged",
-            It.Is<object?[]>(args => (string)args[0]! == session.Id), It.IsAny<CancellationToken>()), Times.Once);
+            It.Is<object?[]>(args => args.Length == 2 && (string)args[0]! == session.Id && (DateTimeOffset)args[1]! == renamed.UpdatedAt),
+            It.IsAny<CancellationToken>()), Times.Once);
         notifications.Verify(proxy => proxy.SendCoreAsync("ConversationDeleted",
             It.Is<object?[]>(args => (string)args[0]! == session.Id), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task CreateAsyncTrimsValidatesConfiguredMaxTitleLengthAndNotifiesOwner()
+    {
+        var service = Service(new() { MaxTitleLength = 10 });
+        var created = await service.CreateAsync("owner", "  Rotterdam ", default);
+        created.Title.Should().Be("Rotterdam");
+        notifications.Verify(proxy => proxy.SendCoreAsync("ConversationChanged",
+            It.Is<object?[]>(args => args.Length == 2 && (string)args[0]! == created.Id && (DateTimeOffset)args[1]! == created.UpdatedAt),
+            It.IsAny<CancellationToken>()), Times.Once);
+
+        var fallback = await service.CreateAsync("owner", "   ", default);
+        fallback.Title.Should().Be("New exploration");
+
+        var overLimit = () => service.CreateAsync("owner", "01234567890", default);
+        var exception = (await overLimit.Should().ThrowAsync<ChatException>()).Which;
+        exception.StatusCode.Should().Be(400);
+        exception.Code.Should().Be("invalid_title");
+    }
+
+    [TestMethod]
+    public async Task DuplicateRequestIdWithDifferentContentThrowsRequestConflict()
+    {
+        var session = await CreateSession();
+        responder.Setup(provider => provider.ReplyAsync(It.IsAny<IReadOnlyList<ChatMessage>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AgentReply("First answer", "test-deployment", 10, 5));
+        var service = Service();
+        var requestId = Guid.NewGuid();
+
+        await service.SendAsync("owner", session.Id, new(requestId, "First prompt"), default);
+        var conflict = () => service.SendAsync("owner", session.Id, new(requestId, "Different prompt"), default);
+
+        var exception = (await conflict.Should().ThrowAsync<ChatException>()).Which;
+        exception.StatusCode.Should().Be(409);
+        exception.Code.Should().Be("request_conflict");
+        (await store.GetAsync("owner", session.Id, default))!.Messages[0].Content.Should().Be("First prompt");
     }
 
     [TestMethod]

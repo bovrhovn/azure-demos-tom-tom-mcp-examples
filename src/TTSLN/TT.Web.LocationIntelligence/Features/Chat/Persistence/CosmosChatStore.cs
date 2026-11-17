@@ -69,10 +69,17 @@ public sealed class CosmosChatStore(
         var query = new QueryDefinition(
             "SELECT c.id, c.title, c.updatedAt FROM c WHERE c.ownerId = @owner ORDER BY c.updatedAt DESC")
             .WithParameter("@owner", ownerId);
-        using var iterator = Container.GetItemQueryIterator<SessionSummary>(query, continuationToken,
-            new QueryRequestOptions { PartitionKey = new(ownerId), MaxItemCount = chatOptions.Value.PageSize });
-        var page = await iterator.ReadNextAsync(cancellationToken);
-        return new(page.ToList(), page.ContinuationToken);
+        try
+        {
+            using var iterator = Container.GetItemQueryIterator<SessionSummary>(query, continuationToken,
+                new QueryRequestOptions { PartitionKey = new(ownerId), MaxItemCount = chatOptions.Value.PageSize });
+            var page = await iterator.ReadNextAsync(cancellationToken);
+            return new(page.ToList(), page.ContinuationToken);
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.BadRequest)
+        {
+            throw new ChatException(400, "Invalid continuation token.", "invalid_continuation_token");
+        }
     }
 
     public async Task<ChatSession?> GetAsync(string ownerId, string id, CancellationToken cancellationToken)
@@ -104,11 +111,11 @@ public sealed class CosmosChatStore(
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.PreconditionFailed)
         {
-            throw new ChatException(409, "This conversation changed. Reload it and try again.");
+            throw new ChatException(409, "This conversation changed. Reload it and try again.", "concurrency_conflict");
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
-            throw new ChatException(404, "Conversation not found.");
+            throw new ChatException(404, "Conversation not found.", "session_not_found");
         }
     }
 
@@ -122,11 +129,11 @@ public sealed class CosmosChatStore(
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.PreconditionFailed)
         {
-            throw new ChatException(409, "This conversation changed. Reload it and try again.");
+            throw new ChatException(409, "This conversation changed. Reload it and try again.", "concurrency_conflict");
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
-            throw new ChatException(404, "Conversation not found.");
+            throw new ChatException(404, "Conversation not found.", "session_not_found");
         }
     }
 
