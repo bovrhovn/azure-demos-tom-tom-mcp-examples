@@ -6,7 +6,7 @@ namespace TT.Web.LocationIntelligence.Pages;
 
 [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
 [IgnoreAntiforgeryToken]
-public class ErrorModel : PageModel
+public class ErrorModel(ILogger<ErrorModel> logger) : PageModel
 {
     public string? RequestId { get; set; }
 
@@ -15,5 +15,6 @@ public class ErrorModel : PageModel
     public void OnGet()
     {
         RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier;
+        logger.LogInformation("Error page requested with request ID {RequestId}", RequestId);
     }
 }

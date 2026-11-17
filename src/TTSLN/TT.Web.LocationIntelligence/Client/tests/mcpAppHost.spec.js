@@ -1,11 +1,12 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { flushPromises } from "@vue/test-utils";
+import { reactive } from "vue";
 import { connectMcpApp, sandboxDocument } from "../services/mcpAppHost.js";
 
 afterEach(() => vi.useRealTimers());
 
-function fixture() {
-  const postMessage = vi.fn();
+function fixture({ reactiveApp = false } = {}) {
+  const postMessage = vi.fn((message) => structuredClone(message));
   const iframe = { contentWindow: { postMessage }, style: {} };
   const callTool = vi.fn(async () => ({ content: [{ type: "text", text: "map-config" }] }));
   const onError = vi.fn();
@@ -16,7 +17,8 @@ function fixture() {
     result: { content: [{ type: "text", text: "route" }], _meta: { appData: "geometry" } },
     meta: { ui: { csp: { resourceDomains: ["https://cdn.jsdelivr.net", "blob:"], connectDomains: ["https://api.tomtom.com", "blob:"] } } }
   };
-  const dispose = connectMcpApp({ iframe, app, callTool, onError, onReady, timeoutMilliseconds: 30000 });
+  const dispose = connectMcpApp({ iframe, app: reactiveApp ? reactive(app) : app,
+    callTool, onError, onReady, timeoutMilliseconds: 30000 });
   const send = async (data, source = iframe.contentWindow) => {
     window.dispatchEvent(new MessageEvent("message", { source, data: { jsonrpc: "2.0", ...data } }));
     await flushPromises();
@@ -55,6 +57,25 @@ it("proxies only allowlisted app tools after initialization and rejects all othe
   expect(f.callTool).toHaveBeenCalledTimes(1);
   expect(f.postMessage.mock.calls.at(-1)[0]).toMatchObject({ id: 3, error: { code: -32601 } });
   f.dispose();
+});
+
+it("sends Vue-reactive arguments and complete tool results as cloneable JSON-RPC messages", async () => {
+  const f = fixture({ reactiveApp: true });
+  try {
+    await f.send({ id: 1, method: "ui/initialize" });
+    await f.send({ method: "ui/notifications/initialized" });
+    expect(f.onReady).toHaveBeenCalledOnce();
+    expect(f.onError).not.toHaveBeenCalled();
+    const messages = f.postMessage.mock.calls.map(([message]) => structuredClone(message));
+    expect(messages[1]).toEqual({
+      jsonrpc: "2.0", method: "ui/notifications/tool-input", params: { arguments: f.app.arguments }
+    });
+    expect(messages[2]).toEqual({
+      jsonrpc: "2.0", method: "ui/notifications/tool-result", params: f.app.result
+    });
+  } finally {
+    f.dispose();
+  }
 });
 
 it("constructs restrictive CSP before any untrusted script and preserves declared TomTom dependencies", () => {

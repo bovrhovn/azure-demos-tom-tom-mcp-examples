@@ -32,7 +32,10 @@ export function connectMcpApp({ iframe, app, callTool, onReady, onError, timeout
   let initialized = false;
   const controller = new AbortController();
   const post = (message) => {
-    if (!disposed) iframe.contentWindow?.postMessage({ jsonrpc: "2.0", ...message }, "*");
+    if (disposed) return;
+    // Vue proxies are not structured-cloneable; MCP messages contain JSON data only.
+    const payload = JSON.parse(JSON.stringify({ jsonrpc: "2.0", ...message }));
+    iframe.contentWindow?.postMessage(payload, "*");
   };
   const notify = (method, params) => post({ method, params });
   const timer = setTimeout(() => {

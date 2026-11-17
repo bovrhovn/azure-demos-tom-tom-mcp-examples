@@ -2,9 +2,7 @@
 
 namespace TT.Web.LocationIntelligence.Pages;
 
-public class PrivacyModel : PageModel
+public class PrivacyModel(ILogger<PrivacyModel> logger) : PageModel
 {
-    public void OnGet()
-    {
-    }
+    public void OnGet() => logger.LogInformation("Privacy page requested at {Time}", DateTimeOffset.UtcNow);
 }
