@@ -21,8 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl jq \
     && rm -rf /var/lib/apt/lists
 WORKDIR /app
 COPY --from=build /publish .
-COPY verify-location-intelligence.sh /app/verify-location-intelligence.sh
-RUN sed -i 's/\r$//' /app/verify-location-intelligence.sh
+COPY verify-location-intelligence.sh verify-travel.sh /app/
+RUN sed -i 's/\r$//' /app/verify-location-intelligence.sh /app/verify-travel.sh
 ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
 USER $APP_UID

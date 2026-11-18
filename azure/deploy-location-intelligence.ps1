@@ -254,6 +254,7 @@ try {
         }
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'LocationIntelligence.Dockerfile') -Destination (Join-Path $context 'Dockerfile')
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-location-intelligence.sh') -Destination $context
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'verify-travel.sh') -Destination $context
         $excluded = "**/node_modules`n**/bin`n**/obj`nwwwroot/dist`n**/.env*`n**/*secrets*`n**/*.pfx`n**/*.pem`n"
         Set-Content -LiteralPath (Join-Path $context '.dockerignore') -Value $excluded -Encoding utf8NoBOM
         if (!$ImageTag) { $ImageTag = [DateTime]::UtcNow.ToString('yyyyMMddHHmmss') }

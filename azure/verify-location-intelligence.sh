@@ -86,4 +86,9 @@ curl --silent --show-error --fail-with-body --max-time 30 -b "$work/cookies" \
     -H "X-CSRF-TOKEN: $csrf" -X DELETE "$base/api/sessions/$session" >/dev/null
 session=""
 echo "PASS: Cosmos delete; temporary conversation removed."
+if [ -n "${WebIQ__Key:-}" ]; then
+    /bin/bash /app/verify-travel.sh "$base"
+else
+    echo "SKIP: live Travel Lab verification; WebIQ__Key is not configured."
+fi
 echo "DEPLOYMENT_VERIFICATION_SUCCEEDED"
