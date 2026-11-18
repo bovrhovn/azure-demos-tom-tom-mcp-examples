@@ -1,0 +1,10 @@
+@page
+@{
+    ViewData["Title"] = "Travel orchestration lab";
+    Response.Headers.CacheControl = "no-store";
+}
+<div id="app" data-workspace="travel"><p>Loading the travel orchestration lab...</p></div>
+<noscript>The travel lab requires JavaScript.</noscript>
+@section Scripts {
+    <script type="module" src="~/dist/app.js" asp-append-version="true"></script>
+}

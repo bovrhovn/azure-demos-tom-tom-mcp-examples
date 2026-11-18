@@ -8,6 +8,8 @@ SignalR notifications. It reuses the console sample's Microsoft Agent Framework,
 Foundry project endpoint, and remote TomTom Maps MCP integration.
 The **Live Maps** header link opens a separate, stateless MCP Apps workspace at
 `/Maps`, with streamed answers, live tool activity, and interactive maps.
+The **Travel Lab** at `/Travel` links to separate Handoff and Magentic travel
+planners, with live weather, route/charging findings, and agent/task timelines.
 
 ## Run locally
 
@@ -138,6 +140,150 @@ in the environment. Prompts, replies, system instructions, tool arguments, and
 tool results are not intentionally recorded. Unknown token usage is not
 estimated. This instruments the local Agent Framework/MCP execution; it does not
 register a hosted Foundry agent or provision Azure resources.
+
+## Travel Lab: Handoff and Magentic
+
+Select **Travel Lab** in the header or visit `/Travel`. The two scenario cards
+open their own pages with the same EU-country/departure-date form:
+
+| Page | Orchestration |
+|---|---|
+| `/Travel/Handoff` | TravelAssistant receives the trip, hands ownership to WeatherChecker, then WeatherChecker hands off to RoutePlanner for TomTom routing and charging suggestions. Bad or uncertain weather is prominently flagged. |
+| `/Travel/Magentic` | A Magentic manager first creates a plan, delegates tasks, reviews progress and replans. Specialists check weather, propose a route and verify stop forecasts. The origin remains fixed; an alternative sunny destination may be proposed. If a complete sunny itinerary cannot be verified, the outcome recommends postponing. |
+
+These are real Microsoft Agent Framework orchestration builders, not a simulated
+sequence. Magentic APIs are experimental in the referenced framework version.
+The workflow package is pinned to 1.28.0. Deterministic regression tests cover
+manager-to-specialist delegation and delivery of specialist findings back to the
+manager; older workflow versions could fail delegation or silently omit those
+findings. Orchestration-limit output is an explicit incomplete-run error, never a
+successful postponement. A supported weather-based no-go assessment is a valid
+completed result.
+The UI shows the manager's task plan and progress, specialist findings, weather
+cards with source links, tool starts/results and the final outcome. It does not
+expose private model reasoning. Model Markdown uses the existing sanitized renderer.
+
+The dropdowns load the backend's checked-in catalog of **27 EU member states**,
+aligned with the [official EU country directory](https://european-union.europa.eu/principles-countries-history/eu-countries_en).
+This is not a runtime dependency on a third-party country API; update `EuCountries`
+when EU membership changes. Routes run **capital-to-capital**, not between
+arbitrary addresses. Dates use UTC and are restricted to the configured forecast
+horizon. Routing departs now for today or at 00:00 UTC on a future selected date.
+
+### Configure providers
+
+The committed `Travel` section selects the demo Foundry project and
+`gpt-5.4-mini` deployment without including credentials. Override it for your
+own project. Empty `Travel:Endpoint`/`Travel:Model` values fall back independently
+to `Agent:Endpoint`/`Agent:Model`. Travel uses the existing server-side
+`Agent:TomTomApiKey` and `Agent:McpEndpoint` data-tools endpoint.
+
+For a single local test, use process environment variables rather than writing
+keys to repository files or browser storage:
+
+```powershell
+az login
+$env:Travel__Endpoint = 'https://<resource>.services.ai.azure.com/api/projects/<project>'
+$env:Travel__Model = 'gpt-5.4-mini'
+$env:Agent__TomTomApiKey = Read-Host 'TomTom MCP API key' -MaskInput
+$env:WebIQ__Key = Read-Host 'WebIQ API key' -MaskInput
+try {
+    $env:ASPNETCORE_ENVIRONMENT = 'Development'
+    dotnet run --project .\src\TTSLN\TT.Web.LocationIntelligence --urls http://127.0.0.1:5088
+} finally {
+    Remove-Item Env:\Agent__TomTomApiKey, Env:\WebIQ__Key
+}
+```
+
+Build the client first as described above. Existing application-level Cosmos
+configuration validation still applies, but Travel Lab never accesses Cosmos.
+The Azure identity needs inference permissions on the selected project/deployment.
+Optional Application Insights continues to use the existing server configuration;
+use a valid connection string beginning with `InstrumentationKey=`, not an API key
+prefixed to that string.
+
+WebIQ uses the documented `POST https://api.microsoft.ai/v3/search/web` contract,
+with `x-apikey`, `query`, `maxResults` and `maxLength`. Search results are evidence,
+not a structured meteorological API: generic, stale, contradictory or undated
+results must not be interpreted as verified sunshine. Provider errors are explicit;
+no demo forecasts or routes are substituted.
+
+| Additional setting | Default / purpose |
+|---|---|
+| `Travel:Endpoint`, `Travel:Model` | Independent Foundry project/deployment; defaults are in `appsettings.json`. |
+| `Travel:TimeoutSeconds` | 600; overall run/delivery timeout, range 30-1200 seconds. |
+| `Travel:TicketLifetimeSeconds` | 60; time to start a browser-bound stream, range 15-300 seconds. |
+| `Travel:MaxConcurrentRuns` | 2; process-wide live-run limit, range 1-16. Excess runs receive an explicit busy error. |
+| `Travel:MaxRounds`, `Travel:MaxStalls`, `Travel:MaxResets` | 12 / 2 / 1; Magentic coordination, stall and replanning bounds. |
+| `Travel:ForecastDays` | 7; UTC departure-date horizon, range 1-10 days. |
+| `Travel:MaxToolCalls` | 40; per-run tool budget, range 10-100. |
+| `Travel:MaxResultCharacters` | 32000; agent/result display bound. Oversized tool payloads are explicitly truncated; oversized streamed agent responses fail. |
+| `WebIQ:Endpoint` | `https://api.microsoft.ai/v3/search/web`; HTTPS required. |
+| `WebIQ:Key` | Required server-side subscription key; environment name `WebIQ__Key`. Never sent to the browser. |
+| `WebIQ:MaxResults`, `WebIQ:MaxContentLength` | 4 / 3000; search results and content characters per source. |
+
+### API, live events and safety
+
+| Route | Behavior |
+|---|---|
+| `GET /api/travel/config` | Country catalog, forecast date bounds, provider-configured flag and endpoint paths; no credentials. |
+| `POST /api/travel/queries` | CSRF-protected validation of `{ scenario, startCountry, destinationCountry, departureDate }`; returns an encrypted, short-lived, browser-bound ticket. |
+| `/hubs/travel`, streaming method `Plan(ticket)` | Executes the selected workflow and streams status, tools, agent starts/results, weather, warnings, plan/replan/task events and a result followed by `completed`, or a sanitized `error`. |
+
+Business/category tools and credential/app helpers are excluded from travel
+agents. Route completion requires routing, an along-route EV search and an EV
+station detail search, not just chargers near the departure/destination. The
+along-route tool calculates its own corridor; it does not guarantee replay of
+an independently customized route. Vehicle battery/range, connector compatibility
+and live charger availability are **not guaranteed**. Island/ferry feasibility
+must come from tools; the agent must not invent a drivable connection.
+
+Weather assessments must cite retrieved WebIQ URLs. A sunny-only itinerary
+requires sunny assessments for all submitted route locations; a previously
+rejected destination does not prevent considering a disclosed sunny alternative.
+Forecasts remain model-interpreted evidence, not a guarantee of conditions along
+every road segment or at arrival time. Recheck forecasts and road/charger
+conditions before actual travel.
+
+All run results are ephemeral: no Cosmos writes, browser-storage persistence or
+reconnection recovery. Stop, navigation or connection loss cancels work; late
+events are ignored. Reconnecting never replays a run. Starting another search is
+a new potentially billed operation. Tickets may be reused until expiry, so this
+is not an idempotent durable-job API. The process-wide run bound is not per-user
+rate limiting or authentication; protect the demo before public exposure.
+
+Server logs contain run/scenario identifiers, event types, agent names and model
+deployment, not intentional prompt/result content. Existing agent telemetry
+captures model/tool durations and actual usage without sensitive-data capture.
+Detailed findings and tool arguments/results are delivered only to the requesting
+browser's stream. Do not configure external diagnostics to record stream bodies.
+
+Focused regression commands:
+
+```powershell
+dotnet test .\src\TTSLN\TT.Web.LocationIntelligence.Tests --filter "FullyQualifiedName~TravelTests|FullyQualifiedName~TravelWorkflowTests"
+Push-Location .\src\TTSLN\TT.Web.LocationIntelligence
+npx --no-install vitest run .\Client\tests\TravelApp.spec.js
+Pop-Location
+```
+
+The automated API/SignalR tests replace providers and require no cloud services;
+live provider verification is separate and incurs real service calls.
+
+For an existing production Container App, keep its image-update workflow rather
+than rerunning full infrastructure provisioning. Add `WebIQ__Key` through a new
+Container Apps secret reference, retaining all existing secrets, environment
+variables, identity, Entra protection and Cosmos configuration. Give the existing
+verification job the same new secret binding. Never place the key in build
+arguments, image layers or checked-in files.
+
+The Azure image includes `azure\verify-travel.sh`. The existing deployment verifier
+runs it when `WebIQ__Key` is present, otherwise explicitly reports a skip.
+It checks all three pages, the 27-country API and both real SignalR orchestration
+outcomes, including both endpoint forecasts and either verified routing/charging
+or a supported Magentic postponement. It uses curl/jq long polling, so no browser
+or Node runtime is added to the production image. Run it inside the existing
+network/identity boundary; do not disable Entra authentication for verification.
 
 ## Live Maps and MCP Apps
 

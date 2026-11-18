@@ -13,11 +13,13 @@ public static class AgentTelemetry
             .UseOpenTelemetry(sourceName: SourceName, configure: telemetry => telemetry.EnableSensitiveData = false)
             .Build();
 
-    public static OpenTelemetryAgent CreateAgent(IChatClient chatClient, AgentOptions settings, IList<AITool> tools) =>
+    public static OpenTelemetryAgent CreateAgent(IChatClient chatClient, AgentOptions settings, IList<AITool> tools,
+        string? description = null) =>
         new(new ChatClientAgent(chatClient, new ChatClientAgentOptions
         {
             Id = settings.Id,
             Name = settings.Name,
+            Description = description,
             ChatOptions = new()
             {
                 ModelId = settings.Model,

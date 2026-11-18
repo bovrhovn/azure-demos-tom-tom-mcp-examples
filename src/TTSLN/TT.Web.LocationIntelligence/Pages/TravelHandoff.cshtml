@@ -1,0 +1,10 @@
+@page "/Travel/Handoff"
+@{
+    ViewData["Title"] = "Handoff travel planner";
+    Response.Headers.CacheControl = "no-store";
+}
+<div id="app" data-workspace="travel" data-scenario="handoff"><p>Loading the Handoff travel planner...</p></div>
+<noscript>Travel planning requires JavaScript for forms and live agent updates.</noscript>
+@section Scripts {
+    <script type="module" src="~/dist/app.js" asp-append-version="true"></script>
+}

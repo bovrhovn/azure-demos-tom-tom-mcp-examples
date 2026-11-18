@@ -10,6 +10,7 @@ Foundry-backed agent uses remote TomTom tools.
 | Run your first question | [Getting started](getting-started.md) | Tutorial |
 | Run and deploy the web chat workspace | [Location Intelligence](location-intelligence.md) | Developer guide |
 | Explore streamed routes and interactive MCP Apps | [Live Maps](location-intelligence.md#live-maps-and-mcp-apps) | Developer guide |
+| Compare Handoff and Magentic travel orchestration | [Travel Lab](location-intelligence.md#travel-lab-handoff-and-magentic) | Developer guide |
 | Find a setting or obtain its value | [Environment variables](environment-variables.md) | Reference |
 | Understand the components and tool boundary | [Architecture](architecture.md) | Explanation |
 | Resolve a setup or runtime problem | [Troubleshooting](troubleshooting.md) | How-to |

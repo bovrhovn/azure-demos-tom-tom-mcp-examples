@@ -6,12 +6,14 @@
 
 | File | Responsibility |
 |---|---|
-| [`src\TTSLN\TTSLN.slnx`](../src/TTSLN/TTSLN.slnx) | Solution containing `TT.Basic` in the `Initial` folder; `Scenarios` is an empty solution folder, not another sample |
+| [`src\TTSLN\TTSLN.slnx`](../src/TTSLN/TTSLN.slnx) | Solution containing the console sample, Location Intelligence web app, and backend tests |
 | [`Program.cs`](../src/TTSLN/TT.Basic/Program.cs) | Top-level entry point: configuration, HTTP MCP client, tool discovery, agent and one console interaction |
 | [`CliHelpers.cs`](../src/TTSLN/TT.Basic/CliHelpers.cs) | `MaskSecret`, used only to partially hide the TomTom key in console output |
 | [`TT.Basic.csproj`](../src/TTSLN/TT.Basic/TT.Basic.csproj) | .NET 10 executable, implicit usings and nullable reference types enabled |
+| `TT.Web.LocationIntelligence\Features\Travel` | Browser-bound travel APIs, SignalR stream, EU catalog, WebIQ weather evidence, real Handoff/Magentic workflows and execution bounds |
+| `TT.Web.LocationIntelligence\Client\TravelApp.vue` | Travel scenario selection, shared trip form, weather cards, task plans, live timeline and sanitized itinerary |
 
-Direct package references in the project:
+Direct package references in the console project:
 
 | Package | Version | Role |
 |---|---|---|
@@ -107,3 +109,29 @@ Foundry. Do not put sensitive personal or confidential data in questions.
   output without escaping. See [console troubleshooting](troubleshooting.md#console-markup-errors).
 
 This is a minimal integration example, not a production-hardened agent host.
+
+## Web travel orchestrations
+
+The independent web app adds `/Travel`, `/Travel/Handoff` and `/Travel/Magentic`.
+See the [web guide](location-intelligence.md#travel-lab-handoff-and-magentic) for
+configuration and the HTTP/SignalR contract.
+
+Handoff uses `AgentWorkflowBuilder.CreateHandoffBuilderWith`: TravelAssistant
+receives the trip and transfers ownership to WeatherChecker, which records WebIQ
+forecasts for both requested capitals and hands off to RoutePlanner. RoutePlanner
+uses the filtered TomTom MCP tools for routing, an EV corridor search and charger
+details. The backend rejects a purportedly complete handoff without these checks.
+
+Magentic uses a fresh `MagenticWorkflowBuilder` and manager for every run. The manager
+creates a task ledger, delegates to weather/route specialists, tracks progress and
+replans within configured limits. A sunny itinerary requires recorded sunny weather
+for the submitted origin, destination and stops, as well as route/charging evidence.
+An unsuitable or unverified fixed origin produces a postponement recommendation,
+not a fabricated sunny itinerary. A rejected destination can be replaced only with
+an explicitly disclosed alternative.
+
+Provider tools execute locally through the agent framework, not hosted Foundry MCP
+registrations. Travel results remain in the page; Cosmos is not used. SignalR
+delivers user-facing activity and tool evidence, while server logs and telemetry
+record content-free lifecycle metadata. Disconnecting cancels the run; reconnecting
+does not restart it. The existing anonymous browser boundary is not authentication.

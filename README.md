@@ -8,6 +8,11 @@ TomTom-inspired Vue chat UI, Cosmos DB sessions, SignalR updates, model/token
 metadata, Application Insights logging, and WSLC container definitions.
 Its **Live Maps** page streams a stateless agent's answers and renders interactive
 TomTom MCP Apps for routes and places, without saving results.
+The **[Travel Lab](docs/location-intelligence.md#travel-lab-handoff-and-magentic)** adds
+two real Agent Framework workflows: specialist **Handoff** for weather-aware EV
+trips, and manager-led **Magentic** planning that adapts to sunshine or recommends
+postponing. Both show live agent activity, WebIQ forecasts, and TomTom route and
+charging findings in separate Vue pages.
 
 **.NET 10 · C# · MCP over HTTP · Spectre.Console · MIT**
 
@@ -42,6 +47,7 @@ completed answer and exits; there is no chat loop or token streaming.
 | [Documentation index](docs/README.md) | Choose a guide |
 | [Getting started](docs/getting-started.md) | Prerequisites, authentication, setup and first run |
 | [Location Intelligence web app](docs/location-intelligence.md) | Vue chat, live MCP Apps maps, configuration, WSLC, Azure ingress and tests |
+| [Travel Lab](docs/location-intelligence.md#travel-lab-handoff-and-magentic) | Handoff and Magentic travel scenarios, WebIQ setup, live activity and limitations |
 | [Environment variables](docs/environment-variables.md) | Every application variable, value acquisition and optional SDK credentials |
 | [Architecture](docs/architecture.md) | Source map, tool execution and lifecycle |
 | [Troubleshooting](docs/troubleshooting.md) | Configuration, connectivity and console limitations |

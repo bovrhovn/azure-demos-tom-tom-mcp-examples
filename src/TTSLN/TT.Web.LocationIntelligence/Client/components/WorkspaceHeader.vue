@@ -16,6 +16,7 @@ defineProps({ activePage: { type: String, default: "chat" }, showOptions: { type
     <nav class="workspace-nav" aria-label="Workspaces">
       <a href="/" :aria-current="activePage === 'chat' ? 'page' : undefined">Chat</a>
       <a href="/Maps" :aria-current="activePage === 'maps' ? 'page' : undefined">Live Maps</a>
+      <a href="/Travel" :aria-current="activePage === 'travel' ? 'page' : undefined">Travel Lab</a>
     </nav>
     <a class="docs-link" href="https://docs.tomtom.com/" target="_blank" rel="noopener noreferrer">
       Documentation <AppIcon name="arrow-up-right-from-square" />

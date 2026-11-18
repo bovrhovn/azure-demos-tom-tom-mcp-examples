@@ -6,6 +6,7 @@ using TT.Web.LocationIntelligence.Features.Chat;
 using TT.Web.LocationIntelligence.Features.Chat.Agents;
 using TT.Web.LocationIntelligence.Features.Chat.Persistence;
 using TT.Web.LocationIntelligence.Features.Maps;
+using TT.Web.LocationIntelligence.Features.Travel;
 using TT.Web.LocationIntelligence.Features.Operations.Errors;
 using TT.Web.LocationIntelligence.Features.Operations.Health;
 using TT.Web.LocationIntelligence.Options.Agents;
@@ -38,6 +39,11 @@ public static class ServiceRegistration
         services.AddProxySupport();
         services.AddChatServices();
         services.AddSingleton<IMapsResponder, FoundryMapsResponder>();
+        services.AddHttpClient<WebIQWeatherClient>();
+        services.AddTransient<ITravelResponder, FoundryTravelResponder>();
+        services.AddSingleton<TravelRunLimiter>();
+        services.AddOptions<Microsoft.AspNetCore.SignalR.HubOptions<TravelHub>>()
+            .Configure(options => options.EnableDetailedErrors = false);
         builder.AddTelemetry();
     }
 
@@ -59,6 +65,17 @@ public static class ServiceRegistration
             .ValidateOnStart();
         services.AddOptions<ChatOptions>().BindConfiguration(ChatOptions.Section)
             .ValidateDataAnnotations().ValidateOnStart();
+        services.AddOptions<TravelOptions>().BindConfiguration(TravelOptions.Section)
+            .ValidateDataAnnotations()
+            .Validate(options => string.IsNullOrWhiteSpace(options.Endpoint) ||
+                Uri.TryCreate(options.Endpoint, UriKind.Absolute, out var uri) && uri.Scheme == "https",
+                "Travel requires an HTTPS Foundry project endpoint.")
+            .ValidateOnStart();
+        services.AddOptions<WebIQOptions>().BindConfiguration(WebIQOptions.Section)
+            .ValidateDataAnnotations()
+            .Validate(options => Uri.TryCreate(options.Endpoint, UriKind.Absolute, out var uri) && uri.Scheme == "https",
+                "WebIQ requires an HTTPS endpoint.")
+            .ValidateOnStart();
         services.AddOptions<BrowserSessionOptions>().BindConfiguration(BrowserSessionOptions.Section)
             .ValidateDataAnnotations().ValidateOnStart();
         services.AddOptions<ReverseProxyOptions>().BindConfiguration(ReverseProxyOptions.Section)

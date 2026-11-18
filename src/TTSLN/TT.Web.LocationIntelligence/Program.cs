@@ -4,6 +4,7 @@ using TT.Web.LocationIntelligence.Features.Chat;
 using TT.Web.LocationIntelligence.Features.Chat.Realtime;
 using TT.Web.LocationIntelligence.Features.Operations;
 using TT.Web.LocationIntelligence.Features.Maps;
+using TT.Web.LocationIntelligence.Features.Travel;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddLocationIntelligence();
@@ -21,6 +22,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check 
 app.MapChatFeature();
 app.MapOperationsFeature();
 app.MapMapsFeature();
+app.MapTravelFeature();
 app.MapHub<ChatHub>(ChatEndpoints.HubPath);
 app.MapRazorPages();
 app.Run();
