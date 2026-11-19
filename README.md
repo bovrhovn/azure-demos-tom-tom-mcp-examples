@@ -1,22 +1,64 @@
+<div align="center">
+
+<samp>LOCATION INTELLIGENCE / LIVE MAPS / MULTI-AGENT TRAVEL</samp>
+
 # 🗺️ TomTom MCP + Microsoft Foundry
 
-A C# console sample that connects a **Microsoft Foundry-backed agent** to the
-**remote TomTom Maps MCP server**, discovers its tools, and answers one location question.
+**Real-world context. Interactive maps. Agents working together.**
 
-The **[Location Intelligence web workspace](docs/location-intelligence.md)** adds a
-TomTom-inspired Vue chat UI, Cosmos DB sessions, SignalR updates, model/token
-metadata, Application Insights logging, and WSLC container definitions.
-Its **Live Maps** page streams a stateless agent's answers and renders interactive
-TomTom MCP Apps for routes and places, without saving results.
-The **[Travel Lab](docs/location-intelligence.md#travel-lab-handoff-and-magentic)** adds
-two real Agent Framework workflows: specialist **Handoff** for weather-aware EV
-trips, and manager-led **Magentic** planning that adapts to sunshine or recommends
-postponing. Both show live agent activity, WebIQ forecasts, and TomTom route and
-charging findings in separate Vue pages.
+Connect Microsoft Foundry agents to the remote TomTom Maps MCP server,<br>
+from a focused C# console sample to a Vue-powered location workspace.
 
-**.NET 10 · C# · MCP over HTTP · Spectre.Console · MIT**
+**`.NET 10` · `C#` · `Vue 3` · `MCP over HTTP` · `Agent Framework`**
 
-## ⚡ Quick start
+[Solution preview](#solution-preview) · [Output gallery](#output-gallery) · [Quick start](#quick-start) · [Documentation](#documentation)
+
+</div>
+
+---
+
+## Solution preview
+
+### Travel Lab / Handoff
+
+Watch specialist agents turn a trip request into a weather-aware EV travel plan.
+The activity timeline sits alongside the final answer, bringing weather warnings,
+route details, and charging candidates into one solution page.
+
+[![Travel Lab Handoff solution page showing a live specialist activity timeline beside a Sofia-to-Tallinn EV trip plan, weather warnings, route summary, and charging candidates](images/tomtom-handoff-pattern.png)](images/tomtom-handoff-pattern.png)
+
+*Example output, not a live forecast or a guaranteed itinerary. Charging candidates
+require validation; the page surfaces route and weather limitations.*
+
+**Explore the workflow:** [Travel Lab guide](docs/location-intelligence.md#travel-lab-handoff-and-magentic)
+
+## Choose your experience
+
+| Experience | What it demonstrates |
+|---|---|
+| **Console** | Discover remote TomTom MCP tools, ask one location question, and print a completed answer with Spectre.Console. |
+| **[Location Intelligence](docs/location-intelligence.md)** | Vue chat, Cosmos DB sessions, SignalR updates, model/token metadata, Application Insights logging, and WSLC container definitions. |
+| **[Live Maps](docs/location-intelligence.md#live-maps-and-mcp-apps)** | Stream a stateless agent's answers and render interactive TomTom MCP Apps for routes and places, without saving results. |
+| **[Travel Lab](docs/location-intelligence.md#travel-lab-handoff-and-magentic)** | Real Agent Framework workflows: specialist **Handoff** for weather-aware EV trips and manager-led **Magentic** planning that adapts to sunshine or recommends postponing. Both show live activity, WebIQ forecasts, and TomTom route/charging findings. |
+
+## Output gallery
+
+Two more views of the workspace in action. Select an image to inspect the full-size output.
+
+| Location Intelligence / Chat | Live Maps / Fuzzy Search |
+|:---:|:---:|
+| [![Location Intelligence chat answering an Eiffel Tower question with coordinates, model name, and token usage](images/tomtom-conversation.png)](images/tomtom-conversation.png) | [![Live Maps output showing a TomTom Fuzzy Search map centered on Amsterdam beside a completed tool activity timeline](images/tomtom-fuzzy-search.png)](images/tomtom-fuzzy-search.png) |
+| A location question becomes a tool-backed answer, with conversation history and model/token metadata. | A route-and-stops request produces interactive map output and a visible tool execution timeline. |
+
+**Build these experiences:** [Web workspace setup](docs/location-intelligence.md#run-locally)
+· [Live Maps setup](docs/location-intelligence.md#live-maps-and-mcp-apps)
+
+---
+
+## Quick start
+
+**Start with the console sample.** For the screenshot-based web experiences, use
+the [web workspace setup](docs/location-intelligence.md#run-locally).
 
 You need the [.NET 10 SDK](https://learn.microsoft.com/en-us/dotnet/core/install/windows),
 the [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) for the sign-in below,
@@ -40,7 +82,7 @@ Azure OpenAI resource URL. The sample does **not** load `.env` files.
 Press Enter at the question prompt to use the Eiffel Tower example. It prints one
 completed answer and exits; there is no chat loop or token streaming.
 
-## 📚 Documentation
+## Documentation
 
 | Start here | What you will find |
 |---|---|
